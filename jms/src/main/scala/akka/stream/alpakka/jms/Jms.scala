@@ -4,10 +4,27 @@
 
 package akka.stream.alpakka.jms
 
-import scala.collection.JavaConversions._
-import java.util
 import java.time.Duration
-import javax.jms.ConnectionFactory
+import java.util
+import javax.jms.{ConnectionFactory, Message}
+
+import scala.collection.JavaConversions._
+
+case class AckEnvelope private[jms] (message: Message, private val jmsSession: JmsAckSession) {
+
+  @volatile var committed = false
+
+  def acknowledge(): Unit = if (!committed) jmsSession.ack(message)
+}
+
+case class TxEnvelope private[jms] (message: Message, private val jmsSession: JmsTxSession) {
+
+  @volatile var committed = false
+
+  def commit(): Unit = if (!committed) jmsSession.commit()
+
+  def rollback(): Unit = if (!committed) jmsSession.rollback()
+}
 
 sealed trait JmsSettings {
   def connectionFactory: ConnectionFactory
@@ -106,17 +123,27 @@ object JmsSourceSettings {
 
 }
 
+sealed trait AbstractJmsSourceSettings extends JmsSettings {
+  def connectionFactory: ConnectionFactory
+  def destination: Option[Destination]
+  def credentials: Option[Credentials]
+  def sessionCount: Int
+  def selector: Option[String]
+}
+
 final case class JmsSourceSettings(connectionFactory: ConnectionFactory,
                                    destination: Option[Destination] = None,
                                    credentials: Option[Credentials] = None,
+                                   sessionCount: Int = 1,
                                    bufferSize: Int = 100,
                                    selector: Option[String] = None)
-    extends JmsSettings {
-  def withCredential(credentials: Credentials) = copy(credentials = Some(credentials))
-  def withBufferSize(size: Int) = copy(bufferSize = size)
-  def withQueue(name: String) = copy(destination = Some(Queue(name)))
-  def withTopic(name: String) = copy(destination = Some(Topic(name)))
-  def withSelector(selector: String) = copy(selector = Some(selector))
+    extends AbstractJmsSourceSettings {
+  def withCredential(credentials: Credentials): JmsSourceSettings = copy(credentials = Some(credentials))
+  def withSessionCount(count: Int): JmsSourceSettings = copy(sessionCount = count)
+  def withBufferSize(size: Int): JmsSourceSettings = copy(bufferSize = size)
+  def withQueue(name: String): JmsSourceSettings = copy(destination = Some(Queue(name)))
+  def withTopic(name: String): JmsSourceSettings = copy(destination = Some(Topic(name)))
+  def withSelector(selector: String): JmsSourceSettings = copy(selector = Some(selector))
 }
 
 object JmsSinkSettings {
@@ -130,10 +157,10 @@ final case class JmsSinkSettings(connectionFactory: ConnectionFactory,
                                  credentials: Option[Credentials] = None,
                                  timeToLive: Option[Duration] = None)
     extends JmsSettings {
-  def withCredential(credentials: Credentials) = copy(credentials = Some(credentials))
-  def withQueue(name: String) = copy(destination = Some(Queue(name)))
-  def withTopic(name: String) = copy(destination = Some(Topic(name)))
-  def withTimeToLive(ttl: Duration) = copy(timeToLive = Some(ttl))
+  def withCredential(credentials: Credentials): JmsSinkSettings = copy(credentials = Some(credentials))
+  def withQueue(name: String): JmsSinkSettings = copy(destination = Some(Queue(name)))
+  def withTopic(name: String): JmsSinkSettings = copy(destination = Some(Topic(name)))
+  def withTimeToLive(ttl: Duration): JmsSinkSettings = copy(timeToLive = Some(ttl))
 }
 
 final case class Credentials(username: String, password: String)

@@ -6,6 +6,7 @@ package akka.stream.alpakka.jms.javadsl;
 
 import akka.NotUsed;
 import akka.actor.ActorSystem;
+import akka.japi.Pair;
 import akka.stream.ActorMaterializer;
 import akka.stream.KillSwitch;
 import akka.stream.Materializer;
@@ -21,7 +22,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import javax.jms.ConnectionFactory;
+import javax.jms.JMSException;
 import javax.jms.Message;
+import javax.jms.TextMessage;
 import java.util.*;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
@@ -31,7 +34,7 @@ import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
 
-public class JmsConnectorsTest {
+public class JmsTxConnectorsTest {
 
     //#create-test-message-list
     private List<JmsTextMessage> createTestMessageList() {
@@ -72,21 +75,24 @@ public class JmsConnectorsTest {
             //#run-text-sink
 
             //#create-text-source
-            Source<String, KillSwitch> jmsSource = JmsSource
-                    .textSource(JmsSourceSettings
+            Source<TxEnvelope, KillSwitch> jmsSource = JmsSource
+                    .txSource(JmsSourceSettings
                             .create(connectionFactory)
+                            .withSessionCount(5)
                             .withQueue("test")
-                            .withBufferSize(10)
                     );
             //#create-text-source
 
             //#run-text-source
             CompletionStage<List<String>> result = jmsSource
                     .take(in.size())
+                    .map(env -> new Pair<>(env, ((TextMessage) env.message()).getText()))
+                    .map(pair -> { pair.first().commit(); return pair.second(); })
                     .runWith(Sink.seq(), materializer);
             //#run-text-source
-
-            assertEquals(in, result.toCompletableFuture().get(3, TimeUnit.SECONDS));
+            List<String> out = new ArrayList<>(result.toCompletableFuture().get(3, TimeUnit.SECONDS));
+            Collections.sort(out);
+            assertEquals(in, out);
         });
 
     }
@@ -113,20 +119,29 @@ public class JmsConnectorsTest {
             //#run-jms-sink
 
             //#create-jms-source
-            Source<Message, KillSwitch> jmsSource = JmsSource.create(JmsSourceSettings
+            Source<TxEnvelope, KillSwitch> jmsSource = JmsSource.txSource(JmsSourceSettings
                     .create(connectionFactory)
+                    .withSessionCount(5)
                     .withQueue("test")
-                    .withBufferSize(10)
             );
             //#create-jms-source
 
             //#run-jms-source
             CompletionStage<List<Message>> result = jmsSource
                     .take(msgsIn.size())
+                    .map(env -> { env.commit(); return env.message(); })
                     .runWith(Sink.seq(), materializer);
             //#run-jms-source
 
-            List<Message> outMessages = result.toCompletableFuture().get(3, TimeUnit.SECONDS);
+            List<Message> outMessages = new ArrayList<>(result.toCompletableFuture().get(3, TimeUnit.SECONDS));
+            outMessages.sort((a, b) -> {
+                try {
+                    return a.getIntProperty("Number") - b.getIntProperty("Number");
+                } catch (JMSException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+
             int msgIdx = 0;
             for(Message outMsg: outMessages) {
                 assertEquals(outMsg.getIntProperty("Number"), msgsIn.get(msgIdx).properties().get("Number").get());
@@ -163,20 +178,28 @@ public class JmsConnectorsTest {
             //#run-jms-sink
 
             //#create-jms-source
-            Source<Message, KillSwitch> jmsSource = JmsSource.create(JmsSourceSettings
+            Source<TxEnvelope, KillSwitch> jmsSource = JmsSource.txSource(JmsSourceSettings
                     .create(connectionFactory)
+                    .withSessionCount(5)
                     .withQueue("test")
-                    .withBufferSize(10)
             );
             //#create-jms-source
 
             //#run-jms-source
             CompletionStage<List<Message>> result = jmsSource
                     .take(msgsIn.size())
+                    .map(env -> { env.commit(); return env.message(); })
                     .runWith(Sink.seq(), materializer);
             //#run-jms-source
 
-            List<Message> outMessages = result.toCompletableFuture().get(3, TimeUnit.SECONDS);
+            List<Message> outMessages = new ArrayList<>(result.toCompletableFuture().get(3, TimeUnit.SECONDS));
+            outMessages.sort((a, b) -> {
+                try {
+                    return a.getIntProperty("Number") - b.getIntProperty("Number");
+                } catch (JMSException e) {
+                    throw new RuntimeException(e);
+                }
+            });
             int msgIdx = 0;
             for(Message outMsg: outMessages) {
                 assertEquals(outMsg.getIntProperty("Number"), msgsIn.get(msgIdx).properties().get("Number").get());
@@ -206,10 +229,10 @@ public class JmsConnectorsTest {
             Source.from(msgsIn).runWith(jmsSink, materializer);
 
             //#create-jms-source-with-selector
-            Source<Message, KillSwitch> jmsSource = JmsSource.create(JmsSourceSettings
+            Source<TxEnvelope, KillSwitch> jmsSource = JmsSource.txSource(JmsSourceSettings
                     .create(connectionFactory)
+                    .withSessionCount(5)
                     .withQueue("test")
-                    .withBufferSize(10)
                     .withSelector("IsOdd = TRUE")
             );
             //#create-jms-source-with-selector
@@ -222,9 +245,18 @@ public class JmsConnectorsTest {
 
             CompletionStage<List<Message>> result = jmsSource
                     .take(oddMsgsIn.size())
+                    .map(env -> { env.commit(); return env.message(); })
                     .runWith(Sink.seq(), materializer);
 
-            List<Message> outMessages = result.toCompletableFuture().get(4, TimeUnit.SECONDS);
+            List<Message> outMessages = new ArrayList<>(result.toCompletableFuture().get(3, TimeUnit.SECONDS));
+            outMessages.sort((a, b) -> {
+                try {
+                    return a.getIntProperty("Number") - b.getIntProperty("Number");
+                } catch (JMSException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+
             int msgIdx = 0;
             for(Message outMsg: outMessages) {
                 assertEquals(outMsg.getIntProperty("Number"), oddMsgsIn.get(msgIdx).properties().get("Number").get());
@@ -259,28 +291,36 @@ public class JmsConnectorsTest {
             );
 
             //#create-topic-source
-            Source<String, KillSwitch> jmsTopicSource = JmsSource
-                    .textSource(JmsSourceSettings
+            Source<TxEnvelope, KillSwitch> jmsTopicSource = JmsSource
+                    .txSource(JmsSourceSettings
                             .create(connectionFactory)
+                            .withSessionCount(1)
                             .withTopic("topic")
-                            .withBufferSize(10)
                     );
             //#create-topic-source
-            Source<String, KillSwitch> jmsTopicSource2 = JmsSource
-                    .textSource(JmsSourceSettings
+            Source<TxEnvelope, KillSwitch> jmsTopicSource2 = JmsSource
+                    .txSource(JmsSourceSettings
                             .create(connectionFactory)
+                            .withSessionCount(1)
                             .withTopic("topic")
-                            .withBufferSize(10)
                     );
 
             //#run-topic-source
             CompletionStage<List<String>> result = jmsTopicSource
                     .take(in.size() + inNumbers.size())
+                    .map(env -> {
+                        env.commit();
+                        return ((TextMessage) env.message()).getText();
+                    })
                     .runWith(Sink.seq(), materializer)
                     .thenApply(l -> l.stream().sorted().collect(Collectors.toList()));
             //#run-topic-source
             CompletionStage<List<String>> result2 = jmsTopicSource2
                     .take(in.size() + inNumbers.size())
+                    .map(env -> {
+                        env.commit();
+                        return ((TextMessage) env.message()).getText();
+                    })
                     .runWith(Sink.seq(), materializer)
                     .thenApply(l -> l.stream().sorted().collect(Collectors.toList()));
 

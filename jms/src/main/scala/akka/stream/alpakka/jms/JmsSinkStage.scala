@@ -4,29 +4,38 @@
 
 package akka.stream.alpakka.jms
 
-import javax.jms.{MessageProducer, TextMessage}
+import javax.jms
+import javax.jms.{Connection, MessageProducer, Session, TextMessage}
 
-import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler}
+import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, StageLogging}
 import akka.stream.{ActorAttributes, Attributes, Inlet, SinkShape}
 
 final class JmsSinkStage(settings: JmsSinkSettings) extends GraphStage[SinkShape[JmsTextMessage]] {
 
   private val in = Inlet[JmsTextMessage]("JmsSink.in")
 
-  override def shape: SinkShape[JmsTextMessage] = SinkShape.of(in)
+  def shape: SinkShape[JmsTextMessage] = SinkShape.of(in)
 
   override protected def initialAttributes: Attributes =
     ActorAttributes.dispatcher("akka.stream.default-blocking-io-dispatcher")
 
-  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new GraphStageLogic(shape) with JmsConnector {
+  def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+    new GraphStageLogic(shape) with JmsConnector with StageLogging {
 
       private var jmsProducer: MessageProducer = _
 
-      override private[jms] def jmsSettings = settings
+      private[jms] def jmsSettings = settings
+
+      private[jms] def createSession(connection: Connection, createDestination: Session => jms.Destination) = {
+        val session = connection.createSession(false, Session.CLIENT_ACKNOWLEDGE)
+        new JmsSession(connection, session, createDestination(session))
+      }
 
       override def preStart(): Unit = {
-        jmsSession = openSession()
+
+        jmsSessions = openSessions()
+        // TODO: Remove hack to limit publisher to single session.
+        val jmsSession = jmsSessions.head
         jmsProducer = jmsSession.session.createProducer(jmsSession.destination)
         if (settings.timeToLive.nonEmpty) {
           jmsProducer.setTimeToLive(settings.timeToLive.get.toMillis)
@@ -38,16 +47,16 @@ final class JmsSinkStage(settings: JmsSinkSettings) extends GraphStage[SinkShape
         in,
         new InHandler {
 
-          override def onPush(): Unit = {
+          def onPush(): Unit = {
 
             def createDestination(destination: Destination): _root_.javax.jms.Destination =
               destination match {
-                case Queue(name) => jmsSession.session.createQueue(name)
-                case Topic(name) => jmsSession.session.createTopic(name)
+                case Queue(name) => jmsSessions.head.session.createQueue(name)
+                case Topic(name) => jmsSessions.head.session.createTopic(name)
               }
 
             val elem: JmsTextMessage = grab(in)
-            val textMessage: TextMessage = jmsSession.session.createTextMessage(elem.body)
+            val textMessage: TextMessage = jmsSessions.head.session.createTextMessage(elem.body)
 
             elem.headers.foreach {
               case JmsType(jmsType) => textMessage.setJMSType(jmsType)
@@ -75,7 +84,7 @@ final class JmsSinkStage(settings: JmsSinkSettings) extends GraphStage[SinkShape
       )
 
       override def postStop(): Unit =
-        Option(jmsSession).foreach(_.closeSession())
+        jmsSessions.foreach(_.closeSession())
     }
 
 }

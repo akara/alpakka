@@ -5,23 +5,24 @@
 package akka.stream.alpakka.jms.scaladsl
 
 import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
-import javax.jms.{JMSException, Message, TextMessage}
+import javax.jms.{JMSException, TextMessage}
 
 import akka.NotUsed
-import akka.stream.{KillSwitch, ThrottleMode}
 import akka.stream.alpakka.jms._
 import akka.stream.scaladsl.{Sink, Source}
+import akka.stream.{KillSwitch, ThrottleMode}
 import org.apache.activemq.ActiveMQConnectionFactory
+import org.scalatest.Inspectors._
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.concurrent.duration._
 
-class JmsConnectorsSpec extends JmsSpec {
+class JmsBufferedAckConnectorsSpec extends JmsSpec {
 
   override implicit val patienceConfig = PatienceConfig(1.minute)
 
-  "The JMS Connectors" should {
+  "The JMS Ack Connectors" should {
     "publish and consume strings through a queue" in withServer() { ctx =>
       val url: String = ctx.url
       //#connection-factory
@@ -35,21 +36,25 @@ class JmsConnectorsSpec extends JmsSpec {
       //#create-text-sink
 
       //#run-text-sink
-      val in = List("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k")
+      val in = 0 to 25 map (i => ('a' + i).asInstanceOf[Char].toString)
       Source(in).runWith(jmsSink)
       //#run-text-sink
 
-      //#create-text-source
-      val jmsSource: Source[String, KillSwitch] = JmsSource.textSource(
-        JmsSourceSettings(connectionFactory).withBufferSize(10).withQueue("test")
+      //#create-ack-source
+      val jmsSource: Source[AckEnvelope, KillSwitch] = JmsSource.ackSource(
+        JmsSourceSettings(connectionFactory).withSessionCount(5).withBufferSize(5).withQueue("test")
       )
-      //#create-text-source
+      //#create-ack-source
 
-      //#run-text-source
-      val result = jmsSource.take(in.size).runWith(Sink.seq)
-      //#run-text-source
+      //#run-ack-source
+      val result = jmsSource
+        .take(in.size)
+        .map(env => (env, env.message.asInstanceOf[TextMessage].getText))
+        .map { case (env, text) => env.acknowledge(); text }
+        .runWith(Sink.seq)
+      //#run-ack-source
 
-      result.futureValue shouldEqual in
+      result.futureValue should contain theSameElementsAs in
     }
 
     "publish and consume JMS text messages with properties through a queue" in withServer() { ctx =>
@@ -63,7 +68,7 @@ class JmsConnectorsSpec extends JmsSpec {
       //#create-jms-sink
 
       //#create-messages-with-properties
-      val msgsIn = (1 to 10).toList.map { n =>
+      val msgsIn = 1 to 100 map { n =>
         JmsTextMessage(n.toString).add("Number", n).add("IsOdd", n % 2 == 1).add("IsEven", n % 2 == 0)
       }
       //#create-messages-with-properties
@@ -71,17 +76,23 @@ class JmsConnectorsSpec extends JmsSpec {
       Source(msgsIn).runWith(jmsSink)
 
       //#create-jms-source
-      val jmsSource: Source[Message, KillSwitch] = JmsSource(
-        JmsSourceSettings(connectionFactory).withBufferSize(10).withQueue("numbers")
+      val jmsSource: Source[AckEnvelope, KillSwitch] = JmsSource.ackSource(
+        JmsSourceSettings(connectionFactory).withSessionCount(5).withBufferSize(5).withQueue("numbers")
       )
       //#create-jms-source
 
       //#run-jms-source
-      val result = jmsSource.take(msgsIn.size).runWith(Sink.seq)
+      val result = jmsSource
+        .take(msgsIn.size)
+        .map { env =>
+          env.acknowledge(); env.message
+        }
+        .runWith(Sink.seq)
       //#run-jms-source
 
       // The sent message and the receiving one should have the same properties
-      result.futureValue.zip(msgsIn).foreach {
+      val sortedResult = result.futureValue.sortBy(msg => msg.getIntProperty("Number"))
+      forAll(sortedResult.zip(msgsIn)) {
         case (out, in) =>
           out.getIntProperty("Number") shouldEqual in.properties("Number")
           out.getBooleanProperty("IsOdd") shouldEqual in.properties("IsOdd")
@@ -98,22 +109,33 @@ class JmsConnectorsSpec extends JmsSpec {
           JmsSinkSettings(connectionFactory).withQueue("numbers")
         )
 
-        val msgsIn = (1 to 10).toList.map { n =>
+        val msgsIn = 1 to 100 map { n =>
           JmsTextMessage(n.toString).add("Number", n).add("IsOdd", n % 2 == 1).add("IsEven", n % 2 == 0)
         }
         Source(msgsIn).runWith(jmsSink)
 
         //#create-jms-source-with-selector
-        val jmsSource = JmsSource(
-          JmsSourceSettings(connectionFactory).withBufferSize(10).withQueue("numbers").withSelector("IsOdd = TRUE")
+        val jmsSource = JmsSource.ackSource(
+          JmsSourceSettings(connectionFactory)
+            .withSessionCount(5)
+            .withBufferSize(5)
+            .withQueue("numbers")
+            .withSelector("IsOdd = TRUE")
         )
         //#create-jms-source-with-selector
 
         //#assert-only-odd-messages-received
         val oddMsgsIn = msgsIn.filter(msg => msg.body.toInt % 2 == 1)
-        val result = jmsSource.take(oddMsgsIn.size).runWith(Sink.seq)
+        val result = jmsSource
+          .take(oddMsgsIn.size)
+          .map { env =>
+            env.acknowledge(); env.message
+          }
+          .runWith(Sink.seq)
         // We should have only received the odd numbers in the list
-        result.futureValue.zip(oddMsgsIn).foreach {
+
+        val sortedResult = result.futureValue.sortBy(msg => msg.getIntProperty("Number"))
+        forAll(sortedResult.zip(oddMsgsIn)) {
           case (out, in) =>
             out.getIntProperty("Number") shouldEqual in.properties("Number")
             out.getBooleanProperty("IsOdd") shouldEqual in.properties("IsOdd")
@@ -126,21 +148,26 @@ class JmsConnectorsSpec extends JmsSpec {
 
     "applying backpressure when the consumer is slower than the producer" in withServer() { ctx =>
       val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
-      val in = List("a", "b", "c")
+      val in = 0 to 25 map (i => ('a' + i).asInstanceOf[Char].toString)
       Source(in).runWith(JmsSink.textSink(JmsSinkSettings(connectionFactory).withQueue("test")))
 
-      val result = JmsSource
-        .textSource(JmsSourceSettings(connectionFactory).withBufferSize(1).withQueue("test"))
-        .throttle(1, 1.second, 1, ThrottleMode.shaping)
+      val jmsSource: Source[AckEnvelope, KillSwitch] = JmsSource.ackSource(
+        JmsSourceSettings(connectionFactory).withSessionCount(5).withBufferSize(5).withQueue("test")
+      )
+
+      val result = jmsSource
+        .throttle(10, 1.second, 1, ThrottleMode.shaping)
         .take(in.size)
+        .map(env => (env, env.message.asInstanceOf[TextMessage].getText))
+        .map { case (env, text) => env.acknowledge(); text }
         .runWith(Sink.seq)
 
-      result.futureValue shouldEqual in
+      result.futureValue should contain theSameElementsAs in
     }
 
     "disconnection should fail the stage" in withServer() { ctx =>
       val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
-      val result = JmsSource(JmsSourceSettings(connectionFactory).withQueue("test")).runWith(Sink.seq)
+      val result = JmsSource.ackSource(JmsSourceSettings(connectionFactory).withQueue("test")).runWith(Sink.seq)
       Thread.sleep(500)
       ctx.broker.stop()
       result.failed.futureValue shouldBe an[JMSException]
@@ -164,18 +191,28 @@ class JmsConnectorsSpec extends JmsSpec {
       val inNumbers = (1 to 10).map(_.toString)
 
       //#create-topic-source
-      val jmsTopicSource: Source[String, KillSwitch] = JmsSource.textSource(
-        JmsSourceSettings(connectionFactory).withBufferSize(10).withTopic("topic")
+      val jmsTopicSource: Source[AckEnvelope, KillSwitch] = JmsSource.ackSource(
+        JmsSourceSettings(connectionFactory).withSessionCount(1).withBufferSize(5).withTopic("topic")
       )
       //#create-topic-source
-      val jmsSource2: Source[String, KillSwitch] = JmsSource.textSource(
-        JmsSourceSettings(connectionFactory).withBufferSize(10).withTopic("topic")
+      val jmsSource2: Source[AckEnvelope, KillSwitch] = JmsSource.ackSource(
+        JmsSourceSettings(connectionFactory).withSessionCount(1).withBufferSize(5).withTopic("topic")
       )
 
       val expectedSize = in.size + inNumbers.size
       //#run-topic-source
-      val result1 = jmsTopicSource.take(expectedSize).runWith(Sink.seq).map(_.sorted)
-      val result2 = jmsSource2.take(expectedSize).runWith(Sink.seq).map(_.sorted)
+      val result1 = jmsTopicSource
+        .take(expectedSize)
+        .map(env => (env, env.message.asInstanceOf[TextMessage].getText))
+        .map { case (env, text) => env.acknowledge(); text }
+        .runWith(Sink.seq)
+        .map(_.sorted)
+      val result2 = jmsSource2
+        .take(expectedSize)
+        .map(env => (env, env.message.asInstanceOf[TextMessage].getText))
+        .map { case (env, text) => env.acknowledge(); text }
+        .runWith(Sink.seq)
+        .map(_.sorted)
       //#run-topic-source
 
       //We wait a little to be sure that the source is connected
@@ -187,8 +224,8 @@ class JmsConnectorsSpec extends JmsSpec {
       Source(inNumbers).runWith(jmsTopicSink2)
 
       val expectedList: List[String] = in ++ inNumbers
-      result1.futureValue shouldEqual expectedList.sorted
-      result2.futureValue shouldEqual expectedList.sorted
+      result1.futureValue should contain theSameElementsAs expectedList
+      result2.futureValue should contain theSameElementsAs expectedList
     }
 
     "ensure no message loss when stopping a queue" in withServer() { ctx =>
@@ -206,7 +243,7 @@ class JmsConnectorsSpec extends JmsSpec {
 
       Source(msgsIn).runWith(jmsSink)
 
-      val jmsSource: Source[Message, KillSwitch] = JmsSource(
+      val jmsSource: Source[AckEnvelope, KillSwitch] = JmsSource.ackSource(
         JmsSourceSettings(connectionFactory).withSessionCount(5).withBufferSize(5).withQueue("numbers")
       )
 
@@ -215,7 +252,10 @@ class JmsConnectorsSpec extends JmsSpec {
       val killSwitch = jmsSource
         .take(msgsIn.size)
         .throttle(10, 1.second, 2, ThrottleMode.shaping)
-        .map(msg => resultQueue.add(msg.asInstanceOf[TextMessage].getText))
+        .map { env =>
+          resultQueue.add(env.message.asInstanceOf[TextMessage].getText)
+          env.acknowledge()
+        }
         .to(Sink.ignore)
         .run()
 
@@ -227,7 +267,10 @@ class JmsConnectorsSpec extends JmsSpec {
 
       val killSwitch2 = jmsSource
         .take(msgsIn.size - resultQueue.size)
-        .map(msg => resultQueue.add(msg.asInstanceOf[TextMessage].getText))
+        .map { env =>
+          resultQueue.add(env.message.asInstanceOf[TextMessage].getText)
+          env.acknowledge()
+        }
         .to(Sink.ignore)
         .run()
 
