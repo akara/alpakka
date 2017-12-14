@@ -58,7 +58,7 @@ final class JmsTxSourceStage(settings: JmsSourceSettings)
 
 abstract class SourceStageLogic[T](shape: SourceShape[T],
                                    out: Outlet[T],
-                                   settings: AbstractJmsSourceSettings,
+                                   settings: JmsSourceSettings,
                                    attributes: Attributes)
     extends GraphStageLogic(shape)
     with JmsConnector

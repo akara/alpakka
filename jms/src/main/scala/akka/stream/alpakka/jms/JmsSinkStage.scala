@@ -27,7 +27,7 @@ final class JmsSinkStage(settings: JmsSinkSettings) extends GraphStage[SinkShape
       private[jms] def jmsSettings = settings
 
       private[jms] def createSession(connection: Connection, createDestination: Session => jms.Destination) = {
-        val session = connection.createSession(false, Session.CLIENT_ACKNOWLEDGE)
+        val session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE)
         new JmsSession(connection, session, createDestination(session))
       }
 

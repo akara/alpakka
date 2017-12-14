@@ -123,21 +123,13 @@ object JmsSourceSettings {
 
 }
 
-sealed trait AbstractJmsSourceSettings extends JmsSettings {
-  def connectionFactory: ConnectionFactory
-  def destination: Option[Destination]
-  def credentials: Option[Credentials]
-  def sessionCount: Int
-  def selector: Option[String]
-}
-
 final case class JmsSourceSettings(connectionFactory: ConnectionFactory,
                                    destination: Option[Destination] = None,
                                    credentials: Option[Credentials] = None,
                                    sessionCount: Int = 1,
                                    bufferSize: Int = 100,
                                    selector: Option[String] = None)
-    extends AbstractJmsSourceSettings {
+    extends JmsSettings {
   def withCredential(credentials: Credentials): JmsSourceSettings = copy(credentials = Some(credentials))
   def withSessionCount(count: Int): JmsSourceSettings = copy(sessionCount = count)
   def withBufferSize(size: Int): JmsSourceSettings = copy(bufferSize = size)
