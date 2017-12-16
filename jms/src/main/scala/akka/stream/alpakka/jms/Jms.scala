@@ -6,11 +6,7 @@ package akka.stream.alpakka.jms
 
 import java.time.Duration
 import javax.jms
-import javax.jms.ConnectionFactory
-import java.util
 import javax.jms.{ConnectionFactory, Message}
-
-import scala.collection.JavaConversions._
 
 case class AckEnvelope private[jms] (message: Message, private val jmsSession: JmsAckSession) {
 
@@ -62,13 +58,14 @@ final case class JmsSourceSettings(connectionFactory: ConnectionFactory,
                                    selector: Option[String] = None,
                                    acknowledgeMode: AcknowledgeMode = AcknowledgeMode.AutoAcknowledge)
     extends JmsSettings {
-  def withCredential(credentials: Credentials) = copy(credentials = Some(credentials))
+  def withCredential(credentials: Credentials): JmsSourceSettings = copy(credentials = Some(credentials))
   def withSessionCount(count: Int): JmsSourceSettings = copy(sessionCount = count)
-  def withBufferSize(size: Int) = copy(bufferSize = size)
-  def withQueue(name: String) = copy(destination = Some(Queue(name)))
-  def withTopic(name: String) = copy(destination = Some(Topic(name)))
-  def withSelector(selector: String) = copy(selector = Some(selector))
-  def withAcknowledgeMode(acknowledgeMode: AcknowledgeMode) = copy(acknowledgeMode = acknowledgeMode)
+  def withBufferSize(size: Int): JmsSourceSettings = copy(bufferSize = size)
+  def withQueue(name: String): JmsSourceSettings = copy(destination = Some(Queue(name)))
+  def withTopic(name: String): JmsSourceSettings = copy(destination = Some(Topic(name)))
+  def withSelector(selector: String): JmsSourceSettings = copy(selector = Some(selector))
+  def withAcknowledgeMode(acknowledgeMode: AcknowledgeMode): JmsSourceSettings =
+    copy(acknowledgeMode = acknowledgeMode)
 }
 
 object JmsSinkSettings {
@@ -83,11 +80,11 @@ final case class JmsSinkSettings(connectionFactory: ConnectionFactory,
                                  timeToLive: Option[Duration] = None,
                                  acknowledgeMode: AcknowledgeMode = AcknowledgeMode.AutoAcknowledge)
     extends JmsSettings {
-  def withCredential(credentials: Credentials) = copy(credentials = Some(credentials))
-  def withQueue(name: String) = copy(destination = Some(Queue(name)))
-  def withTopic(name: String) = copy(destination = Some(Topic(name)))
-  def withTimeToLive(ttl: Duration) = copy(timeToLive = Some(ttl))
-  def withAcknowledgeMode(acknowledgeMode: AcknowledgeMode) = copy(acknowledgeMode = acknowledgeMode)
+  def withCredential(credentials: Credentials): JmsSinkSettings = copy(credentials = Some(credentials))
+  def withQueue(name: String): JmsSinkSettings = copy(destination = Some(Queue(name)))
+  def withTopic(name: String): JmsSinkSettings = copy(destination = Some(Topic(name)))
+  def withTimeToLive(ttl: Duration): JmsSinkSettings = copy(timeToLive = Some(ttl))
+  def withAcknowledgeMode(acknowledgeMode: AcknowledgeMode): JmsSinkSettings = copy(acknowledgeMode = acknowledgeMode)
 }
 
 final case class Credentials(username: String, password: String)

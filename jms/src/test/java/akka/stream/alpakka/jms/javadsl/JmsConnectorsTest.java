@@ -152,7 +152,7 @@ public class JmsConnectorsTest {
             //#run-object-sink
 
             //#create-object-source
-            Source<java.io.Serializable, NotUsed> jmsSource = JmsSource
+            Source<java.io.Serializable, KillSwitch> jmsSource = JmsSource
                     .objectSource(JmsSourceSettings
                             .create(connectionFactory)
                             .withQueue("test")
@@ -193,7 +193,7 @@ public class JmsConnectorsTest {
             //#run-bytearray-sink
 
             //#create-bytearray-source
-            Source<byte[], NotUsed> jmsSource = JmsSource
+            Source<byte[], KillSwitch> jmsSource = JmsSource
                     .bytesSource(JmsSourceSettings
                             .create(connectionFactory)
                             .withQueue("test")
@@ -244,7 +244,7 @@ public class JmsConnectorsTest {
             //#run-map-sink
 
             //#create-map-source
-            Source<Map<String, Object>, NotUsed> jmsSource = JmsSource
+            Source<Map<String, Object>, KillSwitch> jmsSource = JmsSource
                     .mapSource(JmsSourceSettings
                             .create(connectionFactory)
                             .withQueue("test")
@@ -506,7 +506,7 @@ public class JmsConnectorsTest {
             Source.from(msgsIn).runWith(jmsSink, materializer);
 
             //#create-jms-source-client-ack
-            Source<Message, NotUsed> jmsSource = JmsSource.create(JmsSourceSettings
+            Source<Message, KillSwitch> jmsSource = JmsSource.create(JmsSourceSettings
                     .create(connectionFactory)
                     .withQueue("test")
                     .withAcknowledgeMode(AcknowledgeMode.ClientAcknowledge())
@@ -537,13 +537,13 @@ public class JmsConnectorsTest {
     private static Materializer materializer;
 
     @BeforeClass
-    public static void setup() throws Exception {
+    public static void setup() {
         system = ActorSystem.create();
         materializer = ActorMaterializer.create(system);
     }
 
     @AfterClass
-    public static void teardown() throws Exception {
+    public static void teardown() {
         JavaTestKit.shutdownActorSystem(system);
     }
 

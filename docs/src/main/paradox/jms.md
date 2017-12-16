@@ -310,10 +310,10 @@ Java
 Create a @extref[javax.jms.Message](javaee-api:javax.jms.Message) source:
 
 Scala
-: @@snip (../../../../jms/src/test/scala/akka/stream/alpakka/jms/scaladsl/JmsBufferedAckConnectorsSpec.scala) { #create-jms-source }
+: @@snip ($alpakka$/jms/src/test/scala/akka/stream/alpakka/jms/scaladsl/JmsBufferedAckConnectorsSpec.scala) { #create-jms-source }
 
 Java
-: @@snip (../../../../jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsBufferedAckConnectorsTest.java) { #create-jms-source }
+: @@snip ($alpakka$/jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsBufferedAckConnectorsTest.java) { #create-jms-source }
 
 The `sessionCount` parameter controls the number of JMS sessions to run in parallel.
 
@@ -322,10 +322,10 @@ The `bufferSize` parameter controls the maximum number of messages each JMS sess
 Run the source and specify the amount of messages to take:
 
 Scala
-: @@snip (../../../../jms/src/test/scala/akka/stream/alpakka/jms/scaladsl/JmsBufferedAckConnectorsSpec.scala) { #run-jms-source }
+: @@snip ($alpakka$/jms/src/test/scala/akka/stream/alpakka/jms/scaladsl/JmsBufferedAckConnectorsSpec.scala) { #run-jms-source }
 
 Java
-: @@snip (../../../../jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsBufferedAckConnectorsTest.java) { #run-jms-source }
+: @@snip ($alpakka$/jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsBufferedAckConnectorsTest.java) { #run-jms-source }
 
 **Notes:**
 
@@ -338,10 +338,10 @@ Java
 Create a @extref[javax.jms.Message](javaee-api:javax.jms.Message) source:
 
 Scala
-: @@snip (../../../../jms/src/test/scala/akka/stream/alpakka/jms/scaladsl/JmsTxConnectorsSpec.scala) { #create-jms-source }
+: @@snip ($alpakka$/jms/src/test/scala/akka/stream/alpakka/jms/scaladsl/JmsTxConnectorsSpec.scala) { #create-jms-source }
 
 Java
-: @@snip (../../../../jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsTxConnectorsTest.java) { #create-jms-source }
+: @@snip ($alpakka$/jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsTxConnectorsTest.java) { #create-jms-source }
 
 The `sessionCount` parameter controls the number of JMS sessions to run in parallel.
 
@@ -350,10 +350,10 @@ The `bufferSize` parameter controls the maximum number of messages each JMS sess
 Run the source and specify the amount of messages to take:
 
 Scala
-: @@snip (../../../../jms/src/test/scala/akka/stream/alpakka/jms/scaladsl/JmsTxConnectorsSpec.scala) { #run-jms-source }
+: @@snip ($alpakka$/jms/src/test/scala/akka/stream/alpakka/jms/scaladsl/JmsTxConnectorsSpec.scala) { #run-jms-source }
 
 Java
-: @@snip (../../../../jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsTxConnectorsTest.java) { #run-jms-source }
+: @@snip ($alpakka$/jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsTxConnectorsTest.java) { #run-jms-source }
 
 **Notes:**
 

@@ -4,6 +4,7 @@
 
 package akka.stream.alpakka.jms
 
+import javax.jms
 import javax.jms.{Connection, Message, MessageProducer, Session}
 
 import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, StageLogging}
@@ -74,7 +75,7 @@ final class JmsSinkStage(settings: JmsSinkSettings) extends GraphStage[SinkShape
       )
 
       private def findHeader[T](headersDuringSend: Set[JmsHeader])(f: PartialFunction[JmsHeader, T]): Option[T] =
-        headersDuringSend.collect(f).headOption
+        headersDuringSend.collectFirst(f)
 
       private def createMessage(jmsSession: JmsSession, element: JmsMessage): Message =
         element match {

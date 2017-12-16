@@ -228,7 +228,7 @@ class ExplicitAckLogic(shape: SourceShape[AckEnvelope],
   private val maxPendingAck = settings.bufferSize
 
   private[jms] def createSession(connection: Connection, createDestination: Session => javax.jms.Destination) = {
-    val session = connection.createSession(false, Session.CLIENT_ACKNOWLEDGE)
+    val session = connection.createSession(false, settings.acknowledgeMode.mode)
     new JmsAckSession(connection, session, createDestination(session), settings.bufferSize)
   }
 
