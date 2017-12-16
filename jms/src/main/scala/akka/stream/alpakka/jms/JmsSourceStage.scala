@@ -194,7 +194,7 @@ class PreStreamAckLogic(shape: SourceShape[Message],
   private val backpressure = new Semaphore(bufferSize)
 
   private[jms] def createSession(connection: Connection, createDestination: Session => javax.jms.Destination) = {
-    val session = connection.createSession(false, Session.CLIENT_ACKNOWLEDGE)
+    val session = connection.createSession(false, settings.acknowledgeMode.mode)
     new JmsSession(connection, session, createDestination(session))
   }
 
