@@ -136,7 +136,6 @@ private[jms] class JmsAckSession(override val connection: jms.Connection,
 
   def ack(message: jms.Message): Unit = ackQueue.put { () =>
     message.acknowledge()
-    println(Thread.currentThread.getName + " Acked message " + message.asInstanceOf[TextMessage].getText)
   }
 
   override def abortSession(): Unit = {

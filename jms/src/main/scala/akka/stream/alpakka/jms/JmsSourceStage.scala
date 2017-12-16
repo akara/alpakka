@@ -25,7 +25,7 @@ final class JmsSourceStage(settings: JmsSourceSettings)
   override def shape: SourceShape[Message] = SourceShape[Message](out)
 
   override def createLogicAndMaterializedValue(inheritedAttributes: Attributes): (GraphStageLogic, KillSwitch) = {
-    val logic = new PreStreamAckLogic(shape, out, settings, inheritedAttributes)
+    val logic = new NoAckLogic(shape, out, settings, inheritedAttributes)
     (logic, logic.killSwitch)
   }
 }
@@ -149,19 +149,7 @@ abstract class SourceStageLogic[T](shape: SourceShape[T],
 
   private def abortSessions(ex: Throwable): Unit =
     if (stopping.compareAndSet(false, true)) {
-      val stopConnectionFuture = Future {
-        try {
-          jmsConnection.stop()
-        } catch {
-          case NonFatal(e) => log.error(e, "Error stopping JMS connection {}", jmsConnection)
-        }
-      }
-      val closeSessionFutures = jmsSessions.map { s =>
-        val f = s.abortSessionAsync()
-        f.onFailure { case e => log.error(e, "Error closing jms session") }
-        f
-      }
-      Future.sequence(stopConnectionFuture +: closeSessionFutures).onComplete { _ =>
+      Future {
         try {
           jmsConnection.close()
           log.info("JMS connection {} closed", jmsConnection)
@@ -183,10 +171,10 @@ abstract class SourceStageLogic[T](shape: SourceShape[T],
   }
 }
 
-class PreStreamAckLogic(shape: SourceShape[Message],
-                        out: Outlet[Message],
-                        settings: JmsSourceSettings,
-                        attributes: Attributes)
+class NoAckLogic(shape: SourceShape[Message],
+                 out: Outlet[Message],
+                 settings: JmsSourceSettings,
+                 attributes: Attributes)
     extends SourceStageLogic[Message](shape, out, settings, attributes) {
 
   private val bufferSize = (settings.bufferSize + 1) * settings.sessionCount
@@ -194,7 +182,8 @@ class PreStreamAckLogic(shape: SourceShape[Message],
   private val backpressure = new Semaphore(bufferSize)
 
   private[jms] def createSession(connection: Connection, createDestination: Session => javax.jms.Destination) = {
-    val session = connection.createSession(false, Session.CLIENT_ACKNOWLEDGE)
+    val session =
+      connection.createSession(false, settings.acknowledgeMode.getOrElse(AcknowledgeMode.AutoAcknowledge).mode)
     new JmsSession(connection, session, createDestination(session))
   }
 
@@ -228,7 +217,8 @@ class ExplicitAckLogic(shape: SourceShape[AckEnvelope],
   private val maxPendingAck = settings.bufferSize
 
   private[jms] def createSession(connection: Connection, createDestination: Session => javax.jms.Destination) = {
-    val session = connection.createSession(false, settings.acknowledgeMode.mode)
+    val session =
+      connection.createSession(false, settings.acknowledgeMode.getOrElse(AcknowledgeMode.ClientAcknowledge).mode)
     new JmsAckSession(connection, session, createDestination(session), settings.bufferSize)
   }
 
@@ -262,8 +252,6 @@ class ExplicitAckLogic(shape: SourceShape[AckEnvelope],
 
                 if (!listenerStopped)
                   try {
-                    val threadName = Thread.currentThread().getName
-                    println(threadName + " Got message " + message.asInstanceOf[TextMessage].getText)
                     handleMessage.invoke(AckEnvelope(message, session))
                     session.pendingAck += 1
                     if (session.pendingAck > maxPendingAck) {
@@ -299,7 +287,8 @@ class TxLogic(shape: SourceShape[TxEnvelope],
     extends SourceStageLogic[TxEnvelope](shape, out, settings, attributes) {
 
   private[jms] def createSession(connection: Connection, createDestination: Session => javax.jms.Destination) = {
-    val session = connection.createSession(true, Session.SESSION_TRANSACTED)
+    val session =
+      connection.createSession(true, settings.acknowledgeMode.getOrElse(AcknowledgeMode.SessionTransacted).mode)
     new JmsTxSession(connection, session, createDestination(session))
   }
 

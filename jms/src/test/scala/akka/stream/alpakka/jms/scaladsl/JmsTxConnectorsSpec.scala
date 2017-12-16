@@ -262,7 +262,7 @@ class JmsTxConnectorsSpec extends JmsSpec {
       result2.futureValue should contain theSameElementsAs expectedList
     }
 
-    "ensure no message loss when stopping a queue" in withServer() { ctx =>
+    "ensure no message loss when stopping a stream" in withServer() { ctx =>
       val url: String = ctx.url
       val connectionFactory = new ActiveMQConnectionFactory(url)
 
@@ -327,7 +327,7 @@ class JmsTxConnectorsSpec extends JmsSpec {
       resultList should contain theSameElementsAs numsIn.map(_.toString)
     }
 
-    "ensure no message loss when aborting a queue" in withServer() { ctx =>
+    "ensure no message loss when aborting a stream" in withServer() { ctx =>
       val url: String = ctx.url
       val connectionFactory = new ActiveMQConnectionFactory(url)
 

@@ -235,7 +235,7 @@ class JmsAckConnectorsSpec extends JmsSpec {
       result2.futureValue should contain theSameElementsAs expectedList
     }
 
-    "ensure no message loss when stopping a queue" in withServer() { ctx =>
+    "ensure no message loss when stopping a stream" in withServer() { ctx =>
       val url: String = ctx.url
       val connectionFactory = new ActiveMQConnectionFactory(url)
 
@@ -300,7 +300,7 @@ class JmsAckConnectorsSpec extends JmsSpec {
       resultList should contain theSameElementsAs numsIn.map(_.toString)
     }
 
-    "ensure no message loss when aborting a queue" in withServer() { ctx =>
+    "ensure no message loss when aborting a stream" in withServer() { ctx =>
       val url: String = ctx.url
       val connectionFactory = new ActiveMQConnectionFactory(url)
 
@@ -362,11 +362,7 @@ class JmsAckConnectorsSpec extends JmsSpec {
       println("Elements in resultList now: " + resultList.size)
       killSwitch2.shutdown()
 
-      // TODO: Fix message loss
-      //resultList.sortBy(_.toInt) should contain theSameElementsAs numsIn.map(_.toString)
-      // TODO: Remove this
-      resultList.size should be <= numsIn.size
-
+      resultList.sortBy(_.toInt) should contain theSameElementsAs numsIn.map(_.toString)
     }
   }
 }
