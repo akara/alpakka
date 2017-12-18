@@ -355,6 +355,7 @@ class JmsBufferedAckConnectorsSpec extends JmsSpec {
       println("Elements in resultList now: " + resultList.size)
       killSwitch2.shutdown()
 
+      resultList.size should be > (numsIn.size / 2)
       resultList.size should be < numsIn.size
       resultList.size shouldBe resultList.toSet.size // no duplicates
     }

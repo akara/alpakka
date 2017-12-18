@@ -363,9 +363,9 @@ class JmsAckConnectorsSpec extends JmsSpec {
       killSwitch2.shutdown()
 
       // TODO: Fix message loss
-      //resultList.sortBy(_.toInt) should contain theSameElementsAs numsIn.map(_.toString)
-      // TODO: Remove this
-      resultList.size should be <= numsIn.size
+      resultList.sortBy(_.toInt) should contain theSameElementsAs numsIn.map(_.toString)
+    // TODO: Remove this
+    // resultList.size should be <= numsIn.size
 
     }
   }

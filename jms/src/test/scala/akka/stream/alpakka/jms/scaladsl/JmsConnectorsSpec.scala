@@ -505,10 +505,7 @@ class JmsConnectorsSpec extends JmsSpec {
       println("Elements in resultList now: " + resultList.size)
       killSwitch2.shutdown()
 
-      // TODO: Fix message loss
-      //resultList.sortBy(_.toInt) should contain theSameElementsAs numsIn.map(_.toString)
-      // TODO: Remove this
-      resultList.size should be >= numsIn.size
+      resultList.sortBy(_.toInt) should contain theSameElementsAs numsIn.map(_.toString)
     }
 
     "lose some elements when aborting a queue" in withServer() { ctx =>
@@ -573,6 +570,7 @@ class JmsConnectorsSpec extends JmsSpec {
       println("Elements in resultList now: " + resultList.size)
       killSwitch2.shutdown()
 
+      resultList.size should be > (numsIn.size / 2)
       resultList.size should be < numsIn.size
       resultList.size shouldBe resultList.toSet.size // no duplicates
     }
