@@ -543,7 +543,7 @@ public class JmsConnectorsTest {
     }
 
     @AfterClass
-    public static void teardown() throws Exception {
+    public static void teardown() {
         TestKit.shutdownActorSystem(system);
     }
 
