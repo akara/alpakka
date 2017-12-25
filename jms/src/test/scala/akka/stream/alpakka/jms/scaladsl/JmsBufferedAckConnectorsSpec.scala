@@ -11,11 +11,11 @@ import akka.NotUsed
 import akka.stream.alpakka.jms._
 import akka.stream.scaladsl.{Sink, Source}
 import akka.stream.{KillSwitch, ThrottleMode}
-import org.apache.activemq.ActiveMQConnectionFactory
+import org.apache.activemq.{ActiveMQConnectionFactory, ActiveMQSession}
 import org.scalatest.Inspectors._
 
 import scala.annotation.tailrec
-import scala.collection.mutable
+import scala.collection.{mutable, SortedSet}
 import scala.concurrent.duration._
 
 class JmsBufferedAckConnectorsSpec extends JmsSpec {
@@ -228,7 +228,7 @@ class JmsBufferedAckConnectorsSpec extends JmsSpec {
       result2.futureValue should contain theSameElementsAs expectedList
     }
 
-    "ensure no message loss when stopping a queue" in withServer() { ctx =>
+    "ensure no message loss when stopping a stream" in withServer() { ctx =>
       val url: String = ctx.url
       val connectionFactory = new ActiveMQConnectionFactory(url)
 
@@ -293,7 +293,7 @@ class JmsBufferedAckConnectorsSpec extends JmsSpec {
       resultList should contain theSameElementsAs numsIn.map(_.toString)
     }
 
-    "lose some elements when aborting a queue" in withServer() { ctx =>
+    "ensure no message loss when aborting a stream" in withServer() { ctx =>
       val url: String = ctx.url
       val connectionFactory = new ActiveMQConnectionFactory(url)
 
@@ -308,8 +308,15 @@ class JmsBufferedAckConnectorsSpec extends JmsSpec {
 
       Source(msgsIn).runWith(jmsSink)
 
+      // We need this ack mode for AMQ to not lose messages as ack normally acks any messages read on the session.
+      val individualAck = new AcknowledgeMode(ActiveMQSession.INDIVIDUAL_ACKNOWLEDGE)
+
       val jmsSource: Source[AckEnvelope, KillSwitch] = JmsSource.ackSource(
-        JmsSourceSettings(connectionFactory).withSessionCount(5).withBufferSize(5).withQueue("numbers")
+        JmsSourceSettings(connectionFactory)
+          .withSessionCount(5)
+          .withBufferSize(5)
+          .withQueue("numbers")
+          .withAcknowledgeMode(individualAck)
       )
 
       val resultQueue = new LinkedBlockingQueue[String]()
@@ -355,9 +362,10 @@ class JmsBufferedAckConnectorsSpec extends JmsSpec {
       println("Elements in resultList now: " + resultList.size)
       killSwitch2.shutdown()
 
-      resultList.size should be > (numsIn.size / 2)
-      resultList.size should be < numsIn.size
-      resultList.size shouldBe resultList.toSet.size // no duplicates
+      implicit val _ = Ordering.by { s: String =>
+        s.toInt
+      }
+      resultList.to[SortedSet] should contain theSameElementsAs numsIn.map(_.toString)
     }
   }
 }

@@ -28,7 +28,7 @@ sealed trait JmsSettings {
   def connectionFactory: ConnectionFactory
   def destination: Option[Destination]
   def credentials: Option[Credentials]
-  def acknowledgeMode: AcknowledgeMode
+  def acknowledgeMode: Option[AcknowledgeMode]
 }
 
 sealed trait Destination
@@ -56,7 +56,7 @@ final case class JmsSourceSettings(connectionFactory: ConnectionFactory,
                                    sessionCount: Int = 1,
                                    bufferSize: Int = 100,
                                    selector: Option[String] = None,
-                                   acknowledgeMode: AcknowledgeMode = AcknowledgeMode.AutoAcknowledge)
+                                   acknowledgeMode: Option[AcknowledgeMode] = None)
     extends JmsSettings {
   def withCredential(credentials: Credentials): JmsSourceSettings = copy(credentials = Some(credentials))
   def withSessionCount(count: Int): JmsSourceSettings = copy(sessionCount = count)
@@ -65,7 +65,7 @@ final case class JmsSourceSettings(connectionFactory: ConnectionFactory,
   def withTopic(name: String): JmsSourceSettings = copy(destination = Some(Topic(name)))
   def withSelector(selector: String): JmsSourceSettings = copy(selector = Some(selector))
   def withAcknowledgeMode(acknowledgeMode: AcknowledgeMode): JmsSourceSettings =
-    copy(acknowledgeMode = acknowledgeMode)
+    copy(acknowledgeMode = Option(acknowledgeMode))
 }
 
 object JmsSinkSettings {
@@ -78,13 +78,14 @@ final case class JmsSinkSettings(connectionFactory: ConnectionFactory,
                                  destination: Option[Destination] = None,
                                  credentials: Option[Credentials] = None,
                                  timeToLive: Option[Duration] = None,
-                                 acknowledgeMode: AcknowledgeMode = AcknowledgeMode.AutoAcknowledge)
+                                 acknowledgeMode: Option[AcknowledgeMode] = None)
     extends JmsSettings {
   def withCredential(credentials: Credentials): JmsSinkSettings = copy(credentials = Some(credentials))
   def withQueue(name: String): JmsSinkSettings = copy(destination = Some(Queue(name)))
   def withTopic(name: String): JmsSinkSettings = copy(destination = Some(Topic(name)))
   def withTimeToLive(ttl: Duration): JmsSinkSettings = copy(timeToLive = Some(ttl))
-  def withAcknowledgeMode(acknowledgeMode: AcknowledgeMode): JmsSinkSettings = copy(acknowledgeMode = acknowledgeMode)
+  def withAcknowledgeMode(acknowledgeMode: AcknowledgeMode): JmsSinkSettings =
+    copy(acknowledgeMode = Option(acknowledgeMode))
 }
 
 final case class Credentials(username: String, password: String)
