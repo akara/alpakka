@@ -13,7 +13,7 @@ import akka.stream.Materializer;
 import akka.stream.alpakka.jms.*;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
-import akka.testkit.JavaTestKit;
+import akka.testkit.javadsl.TestKit;
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.activemq.broker.BrokerService;
 import org.apache.activemq.command.ActiveMQQueue;
@@ -543,8 +543,8 @@ public class JmsConnectorsTest {
     }
 
     @AfterClass
-    public static void teardown() {
-        JavaTestKit.shutdownActorSystem(system);
+    public static void teardown() throws Exception {
+        TestKit.shutdownActorSystem(system);
     }
 
     private void withServer(ConsumerChecked<Context> test) throws Exception {
