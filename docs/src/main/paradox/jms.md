@@ -266,6 +266,10 @@ Scala
 Java
 : @@snip ($alpakka$/jms/src/test/java/akka/stream/alpakka/jms/javadsl/JmsConnectorsTest.java) { #run-jms-source }
 
+**Notes:**
+
+*  The default `AcknowledgeMode` is `AutoAcknowledge` but can be overridden to custom `AcknowledgeMode`s, even implementation-specific ones by setting the `AcknowledgeMode` in the `JmsSourceSettings` when creating the stream.
+
 ### Receiving @javadoc[javax.jms.Message](javax.jms.Message)s messages from a JMS provider with Client Acknowledgement
 
 Create a @javadoc[javax.jms.Message](javax.jms.Message) source:
@@ -331,7 +335,8 @@ Java
 
 *  Using multiple sessions increases throughput, especially if a acknowledging message by message is desired.
 *  Messages will arrive out of order if `sessionCount` is larger than 1.
-*  Message-by-message acknowledgement can be achieved by setting `bufferSize` to 0, thus disabling buffering. The outstanding messages before backpressure will be the `sessionCount`. 
+*  Message-by-message acknowledgement can be achieved by setting `bufferSize` to 0, thus disabling buffering. The outstanding messages before backpressure will be the `sessionCount`.
+*  The default `AcknowledgeMode` is `ClientAcknowledge` but can be overridden to custom `AcknowledgeMode`s, even implementation-specific ones by setting the `AcknowledgeMode` in the `JmsSourceSettings` when creating the stream. 
 
 ### Transactionally receiving @extref[javax.jms.Message](javaee-api:javax.jms.Message)s from a JMS provider
 
@@ -359,7 +364,9 @@ Java
 
 *  Higher throughput is achieved by increasing the `sessionCount`.
 *  Messages will arrive out of order if `sessionCount` is larger than 1.
-*  Buffering is not supported in transaction mode. The `bufferSize` is ignored. 
+*  Buffering is not supported in transaction mode. The `bufferSize` is ignored.
+*  The default `AcknowledgeMode` is `SessionTransacted` but can be overridden to custom `AcknowledgeMode`s, even implementation-specific ones by setting the `AcknowledgeMode` in the `JmsSourceSettings` when creating the stream. 
+ 
 
 ### Using Topic with an JMS provider
 
