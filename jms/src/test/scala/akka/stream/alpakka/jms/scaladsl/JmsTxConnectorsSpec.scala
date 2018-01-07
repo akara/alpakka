@@ -22,7 +22,7 @@ import scala.util.{Failure, Success}
 
 class JmsTxConnectorsSpec extends JmsSpec {
 
-  override implicit val patienceConfig = PatienceConfig(2.minutes)
+  override implicit val patienceConfig = PatienceConfig(5.minutes)
 
   "The JMS Transactional Connectors" should {
     "publish and consume strings through a queue" in withServer() { ctx =>

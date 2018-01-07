@@ -26,7 +26,7 @@ final case class DummyObject(payload: String)
 
 class JmsConnectorsSpec extends JmsSpec {
 
-  override implicit val patienceConfig = PatienceConfig(2.minutes)
+  override implicit val patienceConfig = PatienceConfig(5.minutes)
 
   "The JMS Connectors" should {
     "publish and consume strings through a queue" in withServer() { ctx =>
