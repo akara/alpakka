@@ -259,7 +259,7 @@ abstract class SourceStageLogic[T](shape: SourceShape[T],
         val f = Future {
           log.info("Closing session {}", s.session)
           s.closeSession()
-          log.info("Closed session {}".s.session)
+          log.info("Closed session {}", s.session)
         }
         f.failed.foreach(e => log.error(e, "Error closing jms session"))
         f
