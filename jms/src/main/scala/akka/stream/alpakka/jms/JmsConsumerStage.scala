@@ -264,7 +264,11 @@ abstract class SourceStageLogic[T](shape: SourceShape[T],
         .sequence(closeSessionFutures)
         .onComplete { _ =>
           try {
-            jmsConnection.foreach(_.close())
+            jmsConnection.foreach { c =>
+              log.info("Closing connection {}", c)
+              c.close()
+              log.info("Closed connection {}", c)
+            }
           } catch {
             case NonFatal(e) => log.error(e, "Error closing JMS connection {}", jmsConnection)
           } finally {

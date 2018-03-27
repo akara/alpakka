@@ -101,7 +101,11 @@ private[jms] class JmsSession(val connection: jms.Connection,
 
   private[jms] def closeSessionAsync()(implicit ec: ExecutionContext): Future[Unit] = Future { closeSession() }
 
-  private[jms] def closeSession(): Unit = session.close()
+  private[jms] def closeSession(): Unit = {
+    log.info("Closing session {} ", session)
+    session.close()
+    log.info("Closed session {} ", session)
+  }
 
   private[jms] def abortSessionAsync()(implicit ec: ExecutionContext): Future[Unit] = Future { abortSession() }
 
