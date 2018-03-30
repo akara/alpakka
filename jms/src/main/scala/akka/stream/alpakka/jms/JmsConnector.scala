@@ -134,9 +134,9 @@ private[jms] class JmsAckSession(override val connection: jms.Connection,
 
   def ack(message: jms.Message): Unit = ackQueue.put(message.acknowledge _)
 
-  override def closeSession(): Unit = stopMessageListenerAndCloseSession
+  override def closeSession(): Unit = stopMessageListenerAndCloseSession()
 
-  override def abortSession(): Unit = stopMessageListenerAndCloseSession
+  override def abortSession(): Unit = stopMessageListenerAndCloseSession()
 
   private def stopMessageListenerAndCloseSession(): Unit = {
     ackQueue.put(() => throw StopMessageListenerException())
@@ -156,7 +156,7 @@ private[jms] class JmsTxSession(override val connection: jms.Connection,
   def rollback(): Unit = commitQueue.put(session.rollback _)
 
   override def abortSession(): Unit = {
-    rollback()
+    commitQueue.put(() => throw StopMessageListenerException())
     session.close()
   }
 }
