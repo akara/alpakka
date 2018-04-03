@@ -266,8 +266,15 @@ abstract class SourceStageLogic[T](shape: SourceShape[T],
           log.info("Closing session {}", s.session)
           s.closeSession()
           log.info("Closed session {}", s.session)
+          Done
+        } recover {
+          case NonFatal(e) =>
+            log.error(e, "Error closing jms session {}", s.session)
+            Done
+          case e =>
+            log.error(e, "Fatal error closing jms session {},", s.session)
+            Done
         }
-        f.failed.foreach(e => log.error(e, "Error closing jms session"))
         f
       }
       Future
@@ -280,7 +287,7 @@ abstract class SourceStageLogic[T](shape: SourceShape[T],
               log.info("Closed connection {}", c)
             }
           } catch {
-            case NonFatal(e) => log.error(e, "Error closing JMS connection {}", jmsConnection)
+            case NonFatal(e) => log.error(e, "Error closing jms connection {}", jmsConnection)
           } finally {
             // By this time, after stopping connection, closing sessions, all async message submissions to this
             // stage should have been invoked. We invoke markStopped as the last item so it gets delivered after
