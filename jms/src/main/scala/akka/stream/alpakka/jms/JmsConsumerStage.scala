@@ -4,18 +4,19 @@
 
 package akka.stream.alpakka.jms
 
-import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.jms._
+import java.util.concurrent.{Semaphore, TimeUnit}
 
 import akka.Done
 import akka.stream._
 import akka.stream.stage._
 import akka.util.OptionVal
+import javax.jms._
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.concurrent.Future
+import scala.concurrent.duration.FiniteDuration
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
@@ -159,6 +160,11 @@ final class JmsTxSourceStage(settings: JmsConsumerSettings)
         new JmsTxSession(connection, session, createDestination(session))
       }
 
+      val (timeout, unit) = settings.ackTimeout match {
+        case d: FiniteDuration => (d.length, d.unit)
+        case _ => (Long.MaxValue, TimeUnit.SECONDS)
+      }
+
       private[jms] def pushMessage(msg: TxEnvelope): Unit = push(out, msg)
 
       override private[jms] def onSessionOpened(jmsSession: JmsSession): Unit =
@@ -173,10 +179,14 @@ final class JmsTxSourceStage(settings: JmsConsumerSettings)
                   def onMessage(message: Message): Unit =
                     if (!listenerStopped)
                       try {
-                        val envelope = TxEnvelope(message, session)
+                        val envelope = TxEnvelope(session.nextMessageId, message, session)
                         handleMessage.invoke(envelope)
-                        val action = session.commitQueue.take()
-                        action(envelope)
+                        OptionVal(session.commitQueue.poll(timeout, unit)) match {
+                          case OptionVal.Some(action) =>
+                            action(envelope)
+                          case OptionVal.None =>
+                            session.session.rollback()
+                        }
                       } catch {
                         case _: StopMessageListenerException => listenerStopped = true // Tombstone.
                         case e: IllegalArgumentException => handleError.invoke(e) // Invalid envelope. Fail the stage.

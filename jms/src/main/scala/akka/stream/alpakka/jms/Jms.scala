@@ -4,10 +4,13 @@
 
 package akka.stream.alpakka.jms
 
-import java.time.Duration
 import java.util.concurrent.atomic.AtomicBoolean
+
 import javax.jms
 import javax.jms.{ConnectionFactory, Message}
+
+import scala.concurrent.duration
+import scala.concurrent.duration.{Duration, TimeUnit}
 
 case class AckEnvelope private[jms] (message: Message, private val jmsSession: JmsAckSession) {
 
@@ -16,7 +19,7 @@ case class AckEnvelope private[jms] (message: Message, private val jmsSession: J
   def acknowledge(): Unit = if (processed.compareAndSet(false, true)) jmsSession.ack(message)
 }
 
-case class TxEnvelope private[jms] (message: Message, private val jmsSession: JmsTxSession) {
+case class TxEnvelope private[jms] (messageId: Long, message: Message, private val jmsSession: JmsTxSession) {
 
   val processed = new AtomicBoolean(false)
 
@@ -66,7 +69,8 @@ final case class JmsConsumerSettings(connectionFactory: ConnectionFactory,
                                      sessionCount: Int = 1,
                                      bufferSize: Int = 100,
                                      selector: Option[String] = None,
-                                     acknowledgeMode: Option[AcknowledgeMode] = None)
+                                     acknowledgeMode: Option[AcknowledgeMode] = None,
+                                     ackTimeout: Duration = Duration.Inf)
     extends JmsSettings {
   def withCredential(credentials: Credentials): JmsConsumerSettings = copy(credentials = Some(credentials))
   def withSessionCount(count: Int): JmsConsumerSettings = copy(sessionCount = count)
@@ -77,6 +81,9 @@ final case class JmsConsumerSettings(connectionFactory: ConnectionFactory,
   def withSelector(selector: String): JmsConsumerSettings = copy(selector = Some(selector))
   def withAcknowledgeMode(acknowledgeMode: AcknowledgeMode): JmsConsumerSettings =
     copy(acknowledgeMode = Option(acknowledgeMode))
+  def withAckTimeout(timeout: Duration): JmsConsumerSettings = copy(ackTimeout = timeout)
+  def withAckTimeout(timeout: Long, unit: TimeUnit): JmsConsumerSettings =
+    copy(ackTimeout = duration.Duration(timeout, unit))
 }
 
 object JmsProducerSettings {
