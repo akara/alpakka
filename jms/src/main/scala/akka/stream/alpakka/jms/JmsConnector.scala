@@ -151,18 +151,28 @@ private[jms] class JmsTxSession(override val connection: jms.Connection,
     messageId
   }
 
-  private[jms] val commitQueue = new ArrayBlockingQueue[TxEnvelope => Unit](1)
+  private[jms] val commitQueue = new ArrayBlockingQueue[TxEnvelope => Boolean](1)
 
   def commit(commitEnv: TxEnvelope): Unit = commitQueue.put { srcEnv =>
     require(srcEnv.messageId >= commitEnv.messageId,
             s"Source envelope mismatch on commit. Source: $srcEnv Commit: $commitEnv")
-    if (srcEnv == commitEnv) session.commit()
+    if (srcEnv == commitEnv) {
+      session.commit()
+      true
+    } else {
+      false
+    }
   }
 
   def rollback(commitEnv: TxEnvelope): Unit = commitQueue.put { srcEnv =>
     require(srcEnv.messageId >= commitEnv.messageId,
             s"Source envelope mismatch on rollback. Source: $srcEnv Commit: $commitEnv")
-    if (srcEnv == commitEnv) session.rollback()
+    if (srcEnv == commitEnv) {
+      session.rollback()
+      true
+    } else {
+      false
+    }
   }
 
   override def abortSession(): Unit = {

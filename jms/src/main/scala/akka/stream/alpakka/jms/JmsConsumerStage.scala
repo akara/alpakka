@@ -176,17 +176,21 @@ final class JmsTxSourceStage(settings: JmsConsumerSettings)
 
                   var listenerStopped = false
 
+                  @tailrec
+                  def pollForAck(currentEnvelope: TxEnvelope): Unit =
+                    OptionVal(session.commitQueue.poll(timeout, unit)) match {
+                      case OptionVal.Some(action) =>
+                        if (!action(currentEnvelope)) pollForAck(currentEnvelope)
+                      case OptionVal.None =>
+                        session.session.rollback()
+                    }
+
                   def onMessage(message: Message): Unit =
                     if (!listenerStopped)
                       try {
                         val envelope = TxEnvelope(session.nextMessageId, message, session)
                         handleMessage.invoke(envelope)
-                        OptionVal(session.commitQueue.poll(timeout, unit)) match {
-                          case OptionVal.Some(action) =>
-                            action(envelope)
-                          case OptionVal.None =>
-                            session.session.rollback()
-                        }
+                        pollForAck(envelope)
                       } catch {
                         case _: StopMessageListenerException => listenerStopped = true // Tombstone.
                         case e: IllegalArgumentException => handleError.invoke(e) // Invalid envelope. Fail the stage.
