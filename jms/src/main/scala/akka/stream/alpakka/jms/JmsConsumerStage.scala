@@ -182,6 +182,7 @@ final class JmsTxSourceStage(settings: JmsConsumerSettings)
                       case OptionVal.Some(action) =>
                         if (!action(currentEnvelope)) pollForAck(currentEnvelope)
                       case OptionVal.None =>
+                        currentEnvelope.processed.set(true)
                         session.session.rollback()
                     }
 

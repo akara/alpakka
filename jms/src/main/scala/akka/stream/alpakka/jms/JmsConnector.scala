@@ -5,12 +5,14 @@
 package akka.stream.alpakka.jms
 
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.atomic.AtomicLong
+
 import javax.jms
 import javax.jms._
-
 import akka.stream.ActorAttributes.Dispatcher
 import akka.stream.ActorMaterializer
 import akka.stream.stage.GraphStageLogic
+
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -144,12 +146,9 @@ private[jms] class JmsTxSession(override val connection: jms.Connection,
                                 override val destination: jms.Destination)
     extends JmsSession(connection, session, destination) {
 
-  private[this] var messageId = 0L
+  private[this] val messageId = new AtomicLong(0L)
 
-  private[jms] def nextMessageId: Long = {
-    messageId += 1
-    messageId
-  }
+  private[jms] def nextMessageId: Long = messageId.incrementAndGet()
 
   private[jms] val commitQueue = new ArrayBlockingQueue[TxEnvelope => Boolean](1)
 
