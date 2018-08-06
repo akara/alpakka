@@ -5,13 +5,12 @@
 package akka.stream.alpakka.jms
 
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.atomic.AtomicLong
 
-import javax.jms
-import javax.jms._
 import akka.stream.ActorAttributes.Dispatcher
 import akka.stream.ActorMaterializer
 import akka.stream.stage.GraphStageLogic
+import javax.jms
+import javax.jms._
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -137,46 +136,6 @@ private[jms] class JmsAckSession(override val connection: jms.Connection,
 
   private def stopMessageListenerAndCloseSession(): Unit = {
     ackQueue.put(() => throw StopMessageListenerException())
-    session.close()
-  }
-}
-
-private[jms] class JmsTxSession(override val connection: jms.Connection,
-                                override val session: jms.Session,
-                                override val destination: jms.Destination)
-    extends JmsSession(connection, session, destination) {
-
-  private[this] val messageId = new AtomicLong(0L)
-
-  private[jms] def nextMessageId: Long = messageId.incrementAndGet()
-
-  private[jms] val commitQueue = new ArrayBlockingQueue[TxEnvelope => Boolean](1)
-
-  def commit(commitEnv: TxEnvelope): Unit = commitQueue.put { srcEnv =>
-    require(srcEnv.messageId >= commitEnv.messageId,
-            s"Source envelope mismatch on commit. Source: $srcEnv Commit: $commitEnv")
-    if (srcEnv == commitEnv) {
-      session.commit()
-      true
-    } else {
-      false
-    }
-  }
-
-  def rollback(commitEnv: TxEnvelope): Unit = commitQueue.put { srcEnv =>
-    require(srcEnv.messageId >= commitEnv.messageId,
-            s"Source envelope mismatch on rollback. Source: $srcEnv Commit: $commitEnv")
-    if (srcEnv == commitEnv) {
-      session.rollback()
-      true
-    } else {
-      false
-    }
-  }
-
-  override def abortSession(): Unit = {
-    // On abort, tombstone the onMessage loop to stop processing messages even if more messages are delivered.
-    commitQueue.put(_ => throw StopMessageListenerException())
     session.close()
   }
 }

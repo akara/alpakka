@@ -4,8 +4,8 @@
 
 package akka.stream.alpakka.jms
 
+import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.{Semaphore, TimeUnit}
 
 import akka.Done
 import akka.stream._
@@ -15,8 +15,7 @@ import javax.jms._
 
 import scala.annotation.tailrec
 import scala.collection.mutable
-import scala.concurrent.Future
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.{Await, Future, TimeoutException}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
@@ -157,46 +156,29 @@ final class JmsTxSourceStage(settings: JmsConsumerSettings)
       private[jms] def createSession(connection: Connection, createDestination: Session => javax.jms.Destination) = {
         val session =
           connection.createSession(true, settings.acknowledgeMode.getOrElse(AcknowledgeMode.SessionTransacted).mode)
-        new JmsTxSession(connection, session, createDestination(session))
-      }
-
-      val (timeout, unit) = settings.ackTimeout match {
-        case d: FiniteDuration => (d.length, d.unit)
-        case _ => (Long.MaxValue, TimeUnit.SECONDS)
+        new JmsSession(connection, session, createDestination(session))
       }
 
       private[jms] def pushMessage(msg: TxEnvelope): Unit = push(out, msg)
 
       override private[jms] def onSessionOpened(jmsSession: JmsSession): Unit =
         jmsSession match {
-          case session: JmsTxSession =>
+          case session: JmsSession =>
             session.createConsumer(settings.selector).onComplete {
               case Success(consumer) =>
                 consumer.setMessageListener(new MessageListener {
 
-                  var listenerStopped = false
-
-                  @tailrec
-                  def pollForAck(currentEnvelope: TxEnvelope): Unit =
-                    OptionVal(session.commitQueue.poll(timeout, unit)) match {
-                      case OptionVal.Some(action) =>
-                        if (!action(currentEnvelope)) pollForAck(currentEnvelope)
-                      case OptionVal.None =>
-                        currentEnvelope.processed.set(true)
-                        session.session.rollback()
-                    }
-
                   def onMessage(message: Message): Unit =
-                    if (!listenerStopped)
-                      try {
-                        val envelope = TxEnvelope(session.nextMessageId, message, session)
-                        handleMessage.invoke(envelope)
-                        pollForAck(envelope)
-                      } catch {
-                        case _: StopMessageListenerException => listenerStopped = true // Tombstone.
-                        case e: IllegalArgumentException => handleError.invoke(e) // Invalid envelope. Fail the stage.
-                        case e: JMSException => handleError.invoke(e)
-                      }
+                    try {
+                      val envelope = TxEnvelope(message, session)
+                      handleMessage.invoke(envelope)
+                      val action = Await.result(envelope.commitFuture, settings.ackTimeout)
+                      action()
+                    } catch {
+                      case _: TimeoutException => session.session.rollback()
+                      case e: IllegalArgumentException => handleError.invoke(e) // Invalid envelope. Fail the stage.
+                      case e: JMSException => handleError.invoke(e)
+                    }
                 })
               case Failure(e) =>
                 fail.invoke(e)

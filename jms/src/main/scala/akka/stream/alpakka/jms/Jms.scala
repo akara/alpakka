@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.jms
 import javax.jms.{ConnectionFactory, Message}
 
-import scala.concurrent.duration
+import scala.concurrent.{duration, Future, Promise}
 import scala.concurrent.duration.{Duration, TimeUnit}
 
 case class AckEnvelope private[jms] (message: Message, private val jmsSession: JmsAckSession) {
@@ -19,13 +19,15 @@ case class AckEnvelope private[jms] (message: Message, private val jmsSession: J
   def acknowledge(): Unit = if (processed.compareAndSet(false, true)) jmsSession.ack(message)
 }
 
-case class TxEnvelope private[jms] (messageId: Long, message: Message, private val jmsSession: JmsTxSession) {
+case class TxEnvelope private[jms] (message: Message, private val jmsSession: JmsSession) {
 
-  val processed = new AtomicBoolean(false)
+  private[this] val commitPromise = Promise[() => Unit]
 
-  def commit(): Unit = if (processed.compareAndSet(false, true)) jmsSession.commit(this)
+  val commitFuture: Future[() => Unit] = commitPromise.future
 
-  def rollback(): Unit = if (processed.compareAndSet(false, true)) jmsSession.rollback(this)
+  def commit(): Unit = commitPromise.success(jmsSession.session.commit _)
+
+  def rollback(): Unit = commitPromise.success(jmsSession.session.rollback _)
 }
 
 sealed trait JmsSettings {
