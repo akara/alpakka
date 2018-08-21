@@ -22,6 +22,9 @@ import org.apache.activemq.command.ActiveMQTextMessage;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import scala.util.Failure;
+import scala.util.Success;
+import scala.util.Try;
 
 import javax.jms.ConnectionFactory;
 import javax.jms.DeliveryMode;
@@ -578,6 +581,12 @@ public class JmsConnectorsTest {
                               }))
                   .runWith(jmsSink, materializer);
 
+          try { // Make sure connection got started before stopping.
+            Thread.sleep(500);
+          } catch (InterruptedException e) {
+            fail("Sleep interrupted.");
+          }
+
           ctx.broker.stop();
 
           try {
@@ -650,6 +659,40 @@ public class JmsConnectorsTest {
           // #run-flow-producer
 
           assertEquals(input, result.toCompletableFuture().get());
+        });
+  }
+
+  @Test
+  public void failAfterRetry() throws Exception {
+    withServer(
+        ctx -> {
+          ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(ctx.url);
+          ctx.broker.stop();
+          long startTime = System.currentTimeMillis();
+          CompletionStage<List<Message>> result =
+              JmsConsumer.create(
+                      JmsConsumerSettings.create(connectionFactory)
+                          .withConnectionRetry(
+                              ConnectionRetrySettings.create()
+                                  .withMaxBackoff(1600, TimeUnit.MILLISECONDS))
+                          .withQueue("test"))
+                  .runWith(Sink.seq(), materializer);
+
+          CompletionStage<Try<List<Message>>> tryFuture =
+              result.handle(
+                  (l, e) -> {
+                    if (l != null) return Success.apply(l);
+                    else return Failure.apply(e);
+                  });
+
+          Try<List<Message>> tryResult = tryFuture.toCompletableFuture().get();
+          long endTime = System.currentTimeMillis();
+
+          assertTrue("Total retry is too short", endTime - startTime > 100L + 400L + 900L + 1600L);
+          assertTrue("Result must be a failure", tryResult.isFailure());
+          assertTrue(
+              "Did not fail with a JMSException",
+              JMSException.class.isAssignableFrom(tryResult.failed().get().getClass()));
         });
   }
 

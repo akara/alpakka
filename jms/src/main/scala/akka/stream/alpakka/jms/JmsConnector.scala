@@ -5,6 +5,7 @@
 package akka.stream.alpakka.jms
 
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.atomic.AtomicReference
 
 import akka.stream.ActorAttributes.Dispatcher
 import akka.stream.ActorMaterializer
@@ -12,7 +13,9 @@ import akka.stream.stage.GraphStageLogic
 import javax.jms
 import javax.jms._
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.annotation.tailrec
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.util.{Failure, Success, Try}
 
 /**
  * Internal API
@@ -41,13 +44,16 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
       onSessionOpened(session)
     }
 
-  private[jms] def initSessionAsync(dispatcher: Dispatcher): Future[Unit] = {
+  private def setExecutionContext(dispatcher: Dispatcher) =
     ec = materializer match {
       case m: ActorMaterializer => m.system.dispatchers.lookup(dispatcher.dispatcher)
       case x => throw new IllegalArgumentException(s"Stage only works with the ActorMaterializer, was: $x")
     }
+
+  private[jms] def initSessionAsync(dispatcher: Dispatcher): Future[Unit] = {
+    setExecutionContext(dispatcher)
     val future = Future {
-      val sessions = openSessions()
+      val sessions = createSessions()
       sessions foreach { session =>
         onSession.invoke(session)
       }
@@ -60,17 +66,67 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
 
   private[jms] def createSession(connection: Connection, createDestination: jms.Session => jms.Destination): JmsSession
 
-  private[jms] def openSessions(): Seq[JmsSession] = {
+  private def tryStartConnection(): Try[Connection] = {
     val factory = jmsSettings.connectionFactory
-    val connection = jmsSettings.credentials match {
-      case Some(Credentials(username, password)) => factory.createConnection(username, password)
-      case _ => factory.createConnection()
+    val connectionRef: AtomicReference[Option[Connection]] = new AtomicReference(None)
+
+    val connectionTry = Try {
+      val connectionFuture = Future {
+        val connection = jmsSettings.credentials match {
+          case Some(Credentials(username, password)) => factory.createConnection(username, password)
+          case _ => factory.createConnection()
+        }
+        connectionRef.set(Some(connection))
+        connection.start()
+        connection
+      }
+      Await.result(connectionFuture, jmsSettings.connectionRetry.connectTimeout)
     }
+    connectionTry.failed.foreach { e =>
+      e.printStackTrace()
+      Future { connectionRef.get().foreach(_.close()) }
+    }
+    connectionTry
+  }
+
+  @tailrec
+  private def startConnectionWithRetry(n: Int = 0): Connection =
+    tryStartConnection() match {
+      case Success(sessions) => sessions
+      case Failure(e: JMSSecurityException) => // Login credentials failure, don't retry.
+        fail.invoke(e)
+        throw e
+      case Failure(t) =>
+        val retrySettings = jmsSettings.connectionRetry
+        import retrySettings._
+        val delay = initialDelay * Math.pow(n, backoffFactor)
+        if (delay > maxBackoff) {
+          val prevDelay = initialDelay * Math.pow(n - 1, backoffFactor)
+          if (failAfterMax && prevDelay >= maxBackoff) {
+            fail.invoke(t)
+            throw t
+          } else {
+            Thread.sleep(maxBackoff.toMillis)
+            startConnectionWithRetry(n + 1)
+          }
+        } else {
+          Thread.sleep(delay.toMillis)
+          startConnectionWithRetry(n + 1)
+        }
+    }
+
+  private[jms] def openSessions(dispatcher: Dispatcher): Seq[JmsSession] = {
+    setExecutionContext(dispatcher)
+    createSessions()
+  }
+
+  private def createSessions(): Seq[JmsSession] = {
+    val connection = startConnectionWithRetry()
+
     connection.setExceptionListener(new ExceptionListener {
       override def onException(exception: JMSException) =
         fail.invoke(exception)
     })
-    connection.start()
     onConnection.invoke(connection)
 
     val createDestination = jmsSettings.destination match {

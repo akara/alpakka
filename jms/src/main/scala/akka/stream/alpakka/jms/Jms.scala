@@ -10,6 +10,7 @@ import javax.jms
 import javax.jms.{ConnectionFactory, Message}
 
 import scala.concurrent.{duration, Future, Promise}
+import scala.concurrent.duration._
 import scala.concurrent.duration.{Duration, TimeUnit}
 
 case class AckEnvelope private[jms] (message: Message, private val jmsSession: JmsAckSession) {
@@ -32,6 +33,7 @@ case class TxEnvelope private[jms] (message: Message, private val jmsSession: Jm
 
 sealed trait JmsSettings {
   def connectionFactory: ConnectionFactory
+  def connectionRetry: ConnectionRetrySettings
   def destination: Option[Destination]
   def credentials: Option[Credentials]
   def acknowledgeMode: Option[AcknowledgeMode]
@@ -59,6 +61,28 @@ object AcknowledgeMode {
   val SessionTransacted: AcknowledgeMode = new AcknowledgeMode(jms.Session.SESSION_TRANSACTED)
 }
 
+object ConnectionRetrySettings {
+  def create(): ConnectionRetrySettings = ConnectionRetrySettings()
+}
+
+final case class ConnectionRetrySettings(connectTimeout: FiniteDuration = 10.seconds,
+                                         initialDelay: FiniteDuration = 100.millis,
+                                         backoffFactor: Double = 2,
+                                         maxBackoff: FiniteDuration = 1.minute,
+                                         failAfterMax: Boolean = true) {
+  def withConnectTimeout(timeout: FiniteDuration): ConnectionRetrySettings = copy(connectTimeout = timeout)
+  def withConnectTimeout(timeout: Long, unit: TimeUnit): ConnectionRetrySettings =
+    copy(connectTimeout = Duration(timeout, unit))
+  def withInitialDelay(delay: FiniteDuration): ConnectionRetrySettings = copy(initialDelay = delay)
+  def withInitialDelay(delay: Long, unit: TimeUnit): ConnectionRetrySettings =
+    copy(initialDelay = Duration(delay, unit))
+  def withBackoffFactor(backoffFactor: Double): ConnectionRetrySettings = copy(backoffFactor = backoffFactor)
+  def withMaxBackoff(maxBackoff: FiniteDuration): ConnectionRetrySettings = copy(maxBackoff = maxBackoff)
+  def withMaxBackoff(maxBackoff: Long, unit: TimeUnit): ConnectionRetrySettings =
+    copy(maxBackoff = Duration(maxBackoff, unit))
+  def withFailAfterMax(failAfterMax: Boolean): ConnectionRetrySettings = copy(failAfterMax = failAfterMax)
+}
+
 object JmsConsumerSettings {
 
   def create(connectionFactory: ConnectionFactory) = JmsConsumerSettings(connectionFactory)
@@ -66,6 +90,7 @@ object JmsConsumerSettings {
 }
 
 final case class JmsConsumerSettings(connectionFactory: ConnectionFactory,
+                                     connectionRetry: ConnectionRetrySettings = ConnectionRetrySettings(),
                                      destination: Option[Destination] = None,
                                      credentials: Option[Credentials] = None,
                                      sessionCount: Int = 1,
@@ -75,6 +100,7 @@ final case class JmsConsumerSettings(connectionFactory: ConnectionFactory,
                                      ackTimeout: Duration = Duration.Inf)
     extends JmsSettings {
   def withCredential(credentials: Credentials): JmsConsumerSettings = copy(credentials = Some(credentials))
+  def withConnectionRetry(settings: ConnectionRetrySettings): JmsConsumerSettings = copy(connectionRetry = settings)
   def withSessionCount(count: Int): JmsConsumerSettings = copy(sessionCount = count)
   def withBufferSize(size: Int): JmsConsumerSettings = copy(bufferSize = size)
   def withQueue(name: String): JmsConsumerSettings = copy(destination = Some(Queue(name)))
@@ -85,7 +111,7 @@ final case class JmsConsumerSettings(connectionFactory: ConnectionFactory,
     copy(acknowledgeMode = Option(acknowledgeMode))
   def withAckTimeout(timeout: Duration): JmsConsumerSettings = copy(ackTimeout = timeout)
   def withAckTimeout(timeout: Long, unit: TimeUnit): JmsConsumerSettings =
-    copy(ackTimeout = duration.Duration(timeout, unit))
+    copy(ackTimeout = Duration(timeout, unit))
 }
 
 object JmsProducerSettings {
@@ -95,12 +121,14 @@ object JmsProducerSettings {
 }
 
 final case class JmsProducerSettings(connectionFactory: ConnectionFactory,
+                                     connectionRetry: ConnectionRetrySettings = ConnectionRetrySettings(),
                                      destination: Option[Destination] = None,
                                      credentials: Option[Credentials] = None,
                                      timeToLive: Option[Duration] = None,
                                      acknowledgeMode: Option[AcknowledgeMode] = None)
     extends JmsSettings {
   def withCredential(credentials: Credentials): JmsProducerSettings = copy(credentials = Some(credentials))
+  def withConnectionRetry(settings: ConnectionRetrySettings): JmsProducerSettings = copy(connectionRetry = settings)
   def withQueue(name: String): JmsProducerSettings = copy(destination = Some(Queue(name)))
   def withTopic(name: String): JmsProducerSettings = copy(destination = Some(Topic(name)))
   def withDestination(destination: Destination): JmsProducerSettings = copy(destination = Some(destination))
@@ -118,12 +146,14 @@ object JmsBrowseSettings {
 }
 
 final case class JmsBrowseSettings(connectionFactory: ConnectionFactory,
+                                   connectionRetry: ConnectionRetrySettings = ConnectionRetrySettings(),
                                    destination: Option[Destination] = None,
                                    credentials: Option[Credentials] = None,
                                    selector: Option[String] = None,
                                    acknowledgeMode: Option[AcknowledgeMode] = None)
     extends JmsSettings {
   def withCredential(credentials: Credentials): JmsBrowseSettings = copy(credentials = Some(credentials))
+  def withConnectionRetry(settings: ConnectionRetrySettings): JmsBrowseSettings = copy(connectionRetry = settings)
   def withQueue(name: String): JmsBrowseSettings = copy(destination = Some(Queue(name)))
   def withDestination(destination: Destination): JmsBrowseSettings = copy(destination = Some(destination))
   def withSelector(selector: String): JmsBrowseSettings = copy(selector = Some(selector))

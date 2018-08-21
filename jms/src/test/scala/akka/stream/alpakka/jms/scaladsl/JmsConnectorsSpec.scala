@@ -564,7 +564,9 @@ class JmsConnectorsSpec extends JmsSpec {
       val connectionFactory = new CachedConnectionFactory(url)
 
       val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer(
-        JmsProducerSettings(connectionFactory).withQueue("numbers")
+        JmsProducerSettings(connectionFactory)
+          .withQueue("numbers")
+          .withConnectionRetry(ConnectionRetrySettings(maxBackoff = 500.millis))
       )
 
       val completionFuture: Future[Done] = Source(0 to 10)
@@ -781,6 +783,23 @@ class JmsConnectorsSpec extends JmsSpec {
       //#run-flow-producer
 
       result.futureValue should ===(input)
+    }
+
+    "only fail after maxBackoff retry" in withServer() { ctx =>
+      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+      ctx.broker.stop()
+      val startTime = System.currentTimeMillis
+      val result = JmsConsumer(
+        JmsConsumerSettings(connectionFactory)
+          .withConnectionRetry(ConnectionRetrySettings(maxBackoff = 1600.millis))
+          .withQueue("test")
+      ).runWith(Sink.seq)
+
+      val ex = result.failed.futureValue
+      val endTime = System.currentTimeMillis
+
+      (endTime - startTime) shouldBe >(100L + 400L + 900L + 1600L)
+      ex shouldBe a[JMSException]
     }
   }
 }

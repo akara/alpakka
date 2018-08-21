@@ -35,8 +35,17 @@ private[jms] final class JmsProducerStage[A <: JmsMessage](settings: JmsProducer
         new JmsSession(connection, session, createDestination(session))
       }
 
+      private def getDispatcher =
+        attributes.get[ActorAttributes.Dispatcher](
+          ActorAttributes.Dispatcher("akka.stream.default-blocking-io-dispatcher")
+        ) match {
+          case ActorAttributes.Dispatcher("") =>
+            ActorAttributes.Dispatcher("akka.stream.default-blocking-io-dispatcher")
+          case d => d
+        }
+
       override def preStart(): Unit = {
-        jmsSessions = openSessions()
+        jmsSessions = openSessions(getDispatcher)
         // TODO: Remove hack to limit publisher to single session.
         jmsSession = jmsSessions.head
         jmsProducer = jmsSession.session.createProducer(jmsSession.destination)
