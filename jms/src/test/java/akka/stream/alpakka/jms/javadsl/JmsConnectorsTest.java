@@ -672,9 +672,8 @@ public class JmsConnectorsTest {
           CompletionStage<List<Message>> result =
               JmsConsumer.create(
                       JmsConsumerSettings.create(connectionFactory)
-                          .withConnectionRetry(
-                              ConnectionRetrySettings.create()
-                                  .withMaxBackoff(1600, TimeUnit.MILLISECONDS))
+                          .withConnectionRetrySettings(
+                              ConnectionRetrySettings.create().withMaxRetries(4))
                           .withQueue("test"))
                   .runWith(Sink.seq(), materializer);
 

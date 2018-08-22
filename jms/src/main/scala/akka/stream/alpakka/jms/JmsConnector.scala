@@ -5,13 +5,12 @@
 package akka.stream.alpakka.jms
 
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 import akka.stream.ActorAttributes.Dispatcher
 import akka.stream.ActorMaterializer
 import akka.stream.stage.GraphStageLogic
 import javax.jms
-import javax.jms._
 
 import scala.annotation.tailrec
 import scala.concurrent.{Await, ExecutionContext, Future}
@@ -24,7 +23,7 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
 
   implicit private[jms] var ec: ExecutionContext = _
 
-  private[jms] var jmsConnection: Option[Connection] = None
+  private[jms] var jmsConnection: Option[jms.Connection] = None
 
   private[jms] var jmsSessions = Seq.empty[JmsSession]
 
@@ -34,7 +33,7 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
 
   private[jms] def fail = getAsyncCallback[Throwable](e => failStage(e))
 
-  private def onConnection = getAsyncCallback[Connection] { c =>
+  private def onConnection = getAsyncCallback[jms.Connection] { c =>
     jmsConnection = Some(c)
   }
 
@@ -44,7 +43,7 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
       onSessionOpened(session)
     }
 
-  private def setExecutionContext(dispatcher: Dispatcher) =
+  private def setExecutionContext(dispatcher: Dispatcher): Unit =
     ec = materializer match {
       case m: ActorMaterializer => m.system.dispatchers.lookup(dispatcher.dispatcher)
       case x => throw new IllegalArgumentException(s"Stage only works with the ActorMaterializer, was: $x")
@@ -64,11 +63,13 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
     future
   }
 
-  private[jms] def createSession(connection: Connection, createDestination: jms.Session => jms.Destination): JmsSession
+  private[jms] def createSession(connection: jms.Connection,
+                                 createDestination: jms.Session => jms.Destination): JmsSession
 
-  private def tryStartConnection(): Try[Connection] = {
+  private def tryStartConnection(): Try[jms.Connection] = {
     val factory = jmsSettings.connectionFactory
-    val connectionRef: AtomicReference[Option[Connection]] = new AtomicReference(None)
+    val connectionRef: AtomicReference[Option[jms.Connection]] = new AtomicReference(None)
+    val cancelled = new AtomicBoolean(false)
 
     val connectionTry = Try {
       val connectionFuture = Future {
@@ -76,42 +77,46 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
           case Some(Credentials(username, password)) => factory.createConnection(username, password)
           case _ => factory.createConnection()
         }
-        connectionRef.set(Some(connection))
-        connection.start()
+        if (!cancelled.get) { // `cancelled` can be set at any point. So we have to check whether to continue.
+          connectionRef.set(Some(connection))
+          connection.start()
+        }
+        if (cancelled.get) { // ... and clean up if the connection is not to be used.
+          connection.close()
+        }
         connection
       }
-      Await.result(connectionFuture, jmsSettings.connectionRetry.connectTimeout)
+      Await.result(connectionFuture, jmsSettings.connectionRetrySettings.connectTimeout)
     }
-    connectionTry.failed.foreach { e =>
-      e.printStackTrace()
+    connectionTry.failed.foreach { _ =>
+      cancelled.set(true) // Cancel the connection setup.
       Future { connectionRef.get().foreach(_.close()) }
     }
     connectionTry
   }
 
   @tailrec
-  private def startConnectionWithRetry(n: Int = 0): Connection =
+  private def startConnectionWithRetry(n: Int = 0, maxed: Boolean = false): jms.Connection =
     tryStartConnection() match {
       case Success(sessions) => sessions
-      case Failure(e: JMSSecurityException) => // Login credentials failure, don't retry.
+      case Failure(e: jms.JMSSecurityException) => // Login credentials failure, don't retry.
         fail.invoke(e)
         throw e
       case Failure(t) =>
-        val retrySettings = jmsSettings.connectionRetry
+        val retrySettings = jmsSettings.connectionRetrySettings
         import retrySettings._
-        val delay = initialDelay * Math.pow(n, backoffFactor)
-        if (delay > maxBackoff) {
-          val prevDelay = initialDelay * Math.pow(n - 1, backoffFactor)
-          if (failAfterMax && prevDelay >= maxBackoff) {
-            fail.invoke(t)
-            throw t
-          } else {
-            Thread.sleep(maxBackoff.toMillis)
-            startConnectionWithRetry(n + 1)
-          }
+        val nextN = n + 1
+        if (maxRetries >= 0 && nextN > maxRetries) { // Negative maxRetries treated as infinite.
+          fail.invoke(t)
+          throw t
+        }
+        val delay = if (maxed) maxBackoff else initialRetry * Math.pow(nextN, backoffFactor)
+        if (delay >= maxBackoff) {
+          Thread.sleep(maxBackoff.toMillis)
+          startConnectionWithRetry(nextN, maxed = true)
         } else {
           Thread.sleep(delay.toMillis)
-          startConnectionWithRetry(n + 1)
+          startConnectionWithRetry(nextN)
         }
     }
 
@@ -123,8 +128,8 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
   private def createSessions(): Seq[JmsSession] = {
     val connection = startConnectionWithRetry()
 
-    connection.setExceptionListener(new ExceptionListener {
-      override def onException(exception: JMSException) =
+    connection.setExceptionListener(new jms.ExceptionListener {
+      override def onException(exception: jms.JMSException) =
         fail.invoke(exception)
     })
     onConnection.invoke(connection)

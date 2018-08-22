@@ -6,16 +6,15 @@ package akka.stream.alpakka.jms.scaladsl
 
 import java.nio.charset.Charset
 import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
-import javax.jms
-import javax.jms.{DeliveryMode, JMSException, Message, Session, TextMessage}
 
 import akka.stream.alpakka.jms._
 import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.stream.{KillSwitch, KillSwitches, ThrottleMode}
 import akka.{Done, NotUsed}
-import org.apache.activemq.ActiveMQConnectionFactory
-import org.apache.activemq.ActiveMQSession
+import javax.jms._
+import org.apache.activemq.{ActiveMQConnectionFactory, ActiveMQSession}
 import org.apache.activemq.command.ActiveMQQueue
+
 import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.collection.immutable.Seq
@@ -566,7 +565,7 @@ class JmsConnectorsSpec extends JmsSpec {
       val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer(
         JmsProducerSettings(connectionFactory)
           .withQueue("numbers")
-          .withConnectionRetry(ConnectionRetrySettings(maxBackoff = 500.millis))
+          .withConnectionRetrySettings(ConnectionRetrySettings(maxRetries = 2))
       )
 
       val completionFuture: Future[Done] = Source(0 to 10)
@@ -791,7 +790,7 @@ class JmsConnectorsSpec extends JmsSpec {
       val startTime = System.currentTimeMillis
       val result = JmsConsumer(
         JmsConsumerSettings(connectionFactory)
-          .withConnectionRetry(ConnectionRetrySettings(maxBackoff = 1600.millis))
+          .withConnectionRetrySettings(ConnectionRetrySettings(maxRetries = 4))
           .withQueue("test")
       ).runWith(Sink.seq)
 
