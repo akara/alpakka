@@ -81,9 +81,7 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
           connectionRef.set(Some(connection))
           connection.start()
         }
-        if (cancelled.get) { // ... and clean up if the connection is not to be used.
-          connection.close()
-        }
+        if (cancelled.get) connection.close() // ... and clean up if the connection is not to be used.
         connection
       }
       Await.result(connectionFuture, jmsSettings.connectionRetrySettings.connectTimeout)
