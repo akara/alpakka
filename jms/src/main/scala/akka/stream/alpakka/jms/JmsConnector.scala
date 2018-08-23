@@ -96,7 +96,7 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
   @tailrec
   private def startConnectionWithRetry(n: Int = 0, maxed: Boolean = false): jms.Connection =
     tryStartConnection() match {
-      case Success(sessions) => sessions
+      case Success(connection) => connection
       case Failure(e: jms.JMSSecurityException) => // Login credentials failure, don't retry.
         fail.invoke(e)
         throw e
