@@ -105,8 +105,9 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
         import retrySettings._
         val nextN = n + 1
         if (maxRetries >= 0 && nextN > maxRetries) { // Negative maxRetries treated as infinite.
-          fail.invoke(t)
-          throw t
+          val retryException = ConnectionRetryException(s"Could not establish connection after $n retries.", t)
+          fail.invoke(retryException)
+          throw retryException
         }
         val delay = if (maxed) maxBackoff else initialRetry * Math.pow(nextN, backoffFactor)
         if (delay >= maxBackoff) {

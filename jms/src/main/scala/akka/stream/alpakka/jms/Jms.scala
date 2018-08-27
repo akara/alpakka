@@ -82,6 +82,8 @@ final case class ConnectionRetrySettings(connectTimeout: FiniteDuration = 10.sec
   def withMaxRetries(maxRetries: Int): ConnectionRetrySettings = copy(maxRetries = maxRetries)
 }
 
+case class ConnectionRetryException(message: String, cause: Throwable) extends Exception(message, cause)
+
 object JmsConsumerSettings {
 
   def create(connectionFactory: ConnectionFactory) = JmsConsumerSettings(connectionFactory)
