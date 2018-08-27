@@ -691,7 +691,7 @@ public class JmsConnectorsTest {
           assertTrue("Result must be a failure", tryResult.isFailure());
           assertTrue(
               "Did not fail with a JMSException",
-              JMSException.class.isAssignableFrom(tryResult.failed().get().getClass()));
+              ConnectionRetryException.class.isAssignableFrom(tryResult.failed().get().getClass()));
         });
   }
 
