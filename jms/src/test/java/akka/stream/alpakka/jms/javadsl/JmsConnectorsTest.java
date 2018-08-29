@@ -689,9 +689,13 @@ public class JmsConnectorsTest {
 
           assertTrue("Total retry is too short", endTime - startTime > 100L + 400L + 900L + 1600L);
           assertTrue("Result must be a failure", tryResult.isFailure());
+          Throwable exception = tryResult.failed().get();
           assertTrue(
-              "Did not fail with a JMSException",
-              ConnectionRetryException.class.isAssignableFrom(tryResult.failed().get().getClass()));
+              "Did not fail with a ConnectionRetryException",
+              ConnectionRetryException.class.isAssignableFrom(exception.getClass()));
+          assertTrue(
+              "Cause of failure is not a JMSException",
+              JMSException.class.isAssignableFrom(exception.getCause().getClass()));
         });
   }
 

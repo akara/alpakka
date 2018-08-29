@@ -580,7 +580,10 @@ class JmsConnectorsSpec extends JmsSpec {
 
       ctx.broker.stop()
 
-      completionFuture.failed.futureValue shouldBe a[ConnectionRetryException]
+      val exception = completionFuture.failed.futureValue
+      exception shouldBe a[ConnectionRetryException]
+      exception.getCause shouldBe a[JMSException]
+
       // connection was not yet initialized before broker stop
       connectionFactory.cachedConnection shouldBe null
     }
@@ -799,6 +802,7 @@ class JmsConnectorsSpec extends JmsSpec {
 
       (endTime - startTime) shouldBe >(100L + 400L + 900L + 1600L)
       ex shouldBe a[ConnectionRetryException]
+      ex.getCause shouldBe a[JMSException]
     }
   }
 }
