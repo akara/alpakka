@@ -80,6 +80,20 @@ final case class ConnectionRetrySettings(connectTimeout: FiniteDuration = 10.sec
   def withMaxBackoff(maxBackoff: Long, unit: TimeUnit): ConnectionRetrySettings =
     copy(maxBackoff = Duration(maxBackoff, unit))
   def withMaxRetries(maxRetries: Int): ConnectionRetrySettings = copy(maxRetries = maxRetries)
+
+  /** Hypothetical retry time, not accounting for maxBackoff. */
+  def waitTime(retryNo: Int): FiniteDuration =
+    (initialRetry * Math.pow(retryNo, backoffFactor)).asInstanceOf[FiniteDuration]
+
+  /** Total possible wait time. */
+  def maxWait: Duration =
+    if (maxRetries < 0) Duration.Inf
+    else {
+      val totalWaitTime = (1 to maxRetries).map(waitTime).reduce(_ + _)
+      val totalTimeout = connectTimeout * (maxRetries + 1)
+      totalTimeout + totalWaitTime
+    }
+
 }
 
 case class ConnectionRetryException(message: String, cause: Throwable) extends Exception(message, cause)

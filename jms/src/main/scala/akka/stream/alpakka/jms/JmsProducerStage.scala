@@ -6,9 +6,10 @@ package akka.stream.alpakka.jms
 
 import javax.jms
 import javax.jms.{Connection, Message, MessageProducer, Session}
-
 import akka.stream._
 import akka.stream.stage._
+
+import scala.concurrent.Await
 
 private[jms] final class JmsProducerStage[A <: JmsMessage](settings: JmsProducerSettings)
     extends GraphStage[FlowShape[A, A]] {
@@ -45,8 +46,8 @@ private[jms] final class JmsProducerStage[A <: JmsMessage](settings: JmsProducer
         }
 
       override def preStart(): Unit = {
-        jmsSessions = openSessions(getDispatcher)
-        // TODO: Remove hack to limit publisher to single session.
+        // TODO: Remove hack to limit publisher to single session, and to await on a future.
+        val jmsSessions = Await.result(openSessions(getDispatcher), settings.connectionRetrySettings.maxWait)
         jmsSession = jmsSessions.head
         jmsProducer = jmsSession.session.createProducer(jmsSession.destination)
         if (settings.timeToLive.nonEmpty) {

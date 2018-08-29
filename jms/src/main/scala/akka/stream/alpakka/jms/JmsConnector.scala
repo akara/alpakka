@@ -5,16 +5,17 @@
 package akka.stream.alpakka.jms
 
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import java.util.concurrent.atomic.AtomicReference
 
+import akka.actor.ActorSystem
+import akka.pattern.after
 import akka.stream.ActorAttributes.Dispatcher
-import akka.stream.ActorMaterializer
 import akka.stream.stage.GraphStageLogic
+import akka.stream.{ActorMaterializer, ActorMaterializerHelper}
 import javax.jms
 
-import scala.annotation.tailrec
-import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.util.{Failure, Success, Try}
+import scala.concurrent.{ExecutionContext, Future, TimeoutException}
+import scala.util.control.NonFatal
 
 /**
  * Internal API
@@ -49,104 +50,125 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
       case x => throw new IllegalArgumentException(s"Stage only works with the ActorMaterializer, was: $x")
     }
 
-  private[jms] def initSessionAsync(dispatcher: Dispatcher): Future[Unit] = {
+  private[jms] def initSessionAsync(dispatcher: Dispatcher): Future[_] = {
     setExecutionContext(dispatcher)
-    val future = Future {
-      val sessions = createSessions()
-      sessions foreach { session =>
+    val sessionsFuture = createSessions()
+    sessionsFuture.foreach { sessions =>
+      sessions.foreach { session =>
         onSession.invoke(session)
       }
     }
-    future.onFailure {
+    sessionsFuture.onFailure {
       case e: Exception => fail.invoke(e)
     }
-    future
+    sessionsFuture
   }
 
   private[jms] def createSession(connection: jms.Connection,
                                  createDestination: jms.Session => jms.Destination): JmsSession
 
-  private def tryStartConnection(): Try[jms.Connection] = {
+  sealed trait ConnectionStatus
+  case object Connecting extends ConnectionStatus
+  case object Connected extends ConnectionStatus
+  case object TimedOut extends ConnectionStatus
+
+  private def startConnection()(implicit system: ActorSystem): Future[jms.Connection] = {
     val factory = jmsSettings.connectionFactory
     val connectionRef: AtomicReference[Option[jms.Connection]] = new AtomicReference(None)
-    val cancelled = new AtomicBoolean(false)
 
-    val connectionTry = Try {
-      val connectionFuture = Future {
-        val connection = jmsSettings.credentials match {
-          case Some(Credentials(username, password)) => factory.createConnection(username, password)
-          case _ => factory.createConnection()
-        }
-        if (!cancelled.get) { // `cancelled` can be set at any point. So we have to check whether to continue.
-          connectionRef.set(Some(connection))
-          connection.start()
-        }
-        if (cancelled.get) connection.close() // ... and clean up if the connection is not to be used.
-        connection
+    // status is also the decision point between the two futures below which one will win.
+    val status = new AtomicReference[ConnectionStatus](Connecting)
+
+    val connectionFuture = Future {
+      val connection = jmsSettings.credentials match {
+        case Some(Credentials(username, password)) => factory.createConnection(username, password)
+        case _ => factory.createConnection()
       }
-      Await.result(connectionFuture, jmsSettings.connectionRetrySettings.connectTimeout)
+      if (status.get == Connecting) { // `cancelled` can be set at any point. So we have to check whether to continue.
+        connectionRef.set(Some(connection))
+        connection.start()
+      }
+      // ... and close if the connection is not to be used, don't return the connection
+      if (!status.compareAndSet(Connecting, Connected)) {
+        connectionRef.get.foreach(_.close())
+        connectionRef.set(None)
+        throw new TimeoutException("Received timed out signal trying to establish connection")
+      } else connection
     }
-    connectionTry.failed.foreach { _ =>
-      cancelled.set(true) // Cancel the connection setup.
-      Future { connectionRef.get().foreach(_.close()) }
+
+    val timeoutFuture = after(jmsSettings.connectionRetrySettings.connectTimeout, system.scheduler) {
+      // Even if the timer goes off, the connection may already be good. We use the
+      // status field and an atomic compareAndSet to see whether we should indeed time out, or just return
+      // the connection. In this case it does not matter which future returns. Both will have the right answer.
+      if (status.compareAndSet(Connecting, TimedOut)) {
+        connectionRef.get.foreach(_.close())
+        connectionRef.set(None)
+        Future.failed(new TimeoutException("Timed out trying to establish connection"))
+      } else
+        connectionRef.get match {
+          case Some(connection) => Future.successful(connection)
+          case None => Future.failed(new IllegalStateException("BUG: Connection reference not set when connected"))
+        }
     }
-    connectionTry
+
+    Future.firstCompletedOf(Iterator(connectionFuture, timeoutFuture))
   }
 
-  @tailrec
-  private def startConnectionWithRetry(n: Int = 0, maxed: Boolean = false): jms.Connection =
-    tryStartConnection() match {
-      case Success(connection) => connection
-      case Failure(e: jms.JMSSecurityException) => // Login credentials failure, don't retry.
-        fail.invoke(e)
-        throw e
-      case Failure(t) =>
+  private def startConnectionWithRetry(n: Int = 0,
+                                       maxed: Boolean = false)(implicit system: ActorSystem): Future[jms.Connection] =
+    startConnection().recoverWith {
+      case e: jms.JMSSecurityException => Future.failed(e)
+      case NonFatal(t) =>
         val retrySettings = jmsSettings.connectionRetrySettings
         import retrySettings._
         val nextN = n + 1
         if (maxRetries >= 0 && nextN > maxRetries) { // Negative maxRetries treated as infinite.
-          val retryException = ConnectionRetryException(s"Could not establish connection after $n retries.", t)
-          fail.invoke(retryException)
-          throw retryException
-        }
-        val delay = if (maxed) maxBackoff else initialRetry * Math.pow(nextN, backoffFactor)
-        if (delay >= maxBackoff) {
-          Thread.sleep(maxBackoff.toMillis)
-          startConnectionWithRetry(nextN, maxed = true)
+          Future.failed(ConnectionRetryException(s"Could not establish connection after $n retries.", t))
         } else {
-          Thread.sleep(delay.toMillis)
-          startConnectionWithRetry(nextN)
+          val delay =
+            if (maxed) maxBackoff
+            else waitTime(nextN)
+
+          if (delay >= maxBackoff)
+            after(maxBackoff, system.scheduler) {
+              startConnectionWithRetry(nextN, maxed = true)
+            }
+          else
+            after(delay, system.scheduler) {
+              startConnectionWithRetry(nextN)
+            }
         }
     }
 
-  private[jms] def openSessions(dispatcher: Dispatcher): Seq[JmsSession] = {
+  private[jms] def openSessions(dispatcher: Dispatcher): Future[Seq[JmsSession]] = {
     setExecutionContext(dispatcher)
     createSessions()
   }
 
-  private def createSessions(): Seq[JmsSession] = {
-    val connection = startConnectionWithRetry()
+  private def createSessions(): Future[Seq[JmsSession]] = {
+    implicit val system: ActorSystem = ActorMaterializerHelper.downcast(materializer).system
+    startConnectionWithRetry().map { connection =>
+      connection.setExceptionListener(new jms.ExceptionListener {
+        override def onException(exception: jms.JMSException) =
+          fail.invoke(exception)
+      })
+      onConnection.invoke(connection)
 
-    connection.setExceptionListener(new jms.ExceptionListener {
-      override def onException(exception: jms.JMSException) =
-        fail.invoke(exception)
-    })
-    onConnection.invoke(connection)
+      val createDestination = jmsSettings.destination match {
+        case Some(destination) =>
+          destination.create
+        case _ => throw new IllegalArgumentException("Destination is missing")
+      }
 
-    val createDestination = jmsSettings.destination match {
-      case Some(destination) =>
-        destination.create
-      case _ => throw new IllegalArgumentException("Destination is missing")
-    }
+      val sessionCount = jmsSettings match {
+        case settings: JmsConsumerSettings =>
+          settings.sessionCount
+        case _ => 1
+      }
 
-    val sessionCount = jmsSettings match {
-      case settings: JmsConsumerSettings =>
-        settings.sessionCount
-      case _ => 1
-    }
-
-    0 until sessionCount map { _ =>
-      createSession(connection, createDestination)
+      0 until sessionCount map { _ =>
+        createSession(connection, createDestination)
+      }
     }
   }
 }
