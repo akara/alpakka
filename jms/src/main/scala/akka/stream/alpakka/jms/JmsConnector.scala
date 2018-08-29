@@ -84,7 +84,7 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
         case Some(Credentials(username, password)) => factory.createConnection(username, password)
         case _ => factory.createConnection()
       }
-      if (status.get == Connecting) { // `cancelled` can be set at any point. So we have to check whether to continue.
+      if (status.get == Connecting) { // `TimedOut` can be set at any point. So we have to check whether to continue.
         connectionRef.set(Some(connection))
         connection.start()
       }
