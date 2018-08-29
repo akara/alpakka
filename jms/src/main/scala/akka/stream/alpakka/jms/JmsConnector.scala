@@ -114,8 +114,8 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
     Future.firstCompletedOf(Iterator(connectionFuture, timeoutFuture))
   }
 
-  private def startConnectionWithRetry(n: Int = 0,
-                                       maxed: Boolean = false)(implicit system: ActorSystem): Future[jms.Connection] =
+  private def startConnectionWithRetry(n: Int = 0, maxed: Boolean = false)
+                                      (implicit system: ActorSystem): Future[jms.Connection] =
     startConnection().recoverWith {
       case e: jms.JMSSecurityException => Future.failed(e)
       case NonFatal(t) =>
