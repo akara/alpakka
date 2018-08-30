@@ -82,11 +82,11 @@ final case class ConnectionRetrySettings(connectTimeout: FiniteDuration = 10.sec
   def withMaxRetries(maxRetries: Int): ConnectionRetrySettings = copy(maxRetries = maxRetries)
 
   /** Hypothetical retry time, not accounting for maxBackoff. */
-  def waitTime(retryNo: Int): FiniteDuration =
-    (initialRetry * Math.pow(retryNo, backoffFactor)).asInstanceOf[FiniteDuration]
+  def waitTime(retryNumber: Int): FiniteDuration =
+    (initialRetry * Math.pow(retryNumber, backoffFactor)).asInstanceOf[FiniteDuration]
 
-  /** Total possible wait time. */
-  def maxWait: Duration =
+  /** Max possible time it will take to timeout, including connection timeouts and the wait time between retries.  */
+  def maxWaitTime: Duration =
     if (maxRetries < 0) Duration.Inf
     else {
       val totalWaitTime = (1 to maxRetries).map(waitTime).reduce(_ + _)

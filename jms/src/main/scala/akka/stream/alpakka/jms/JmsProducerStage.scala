@@ -47,7 +47,7 @@ private[jms] final class JmsProducerStage[A <: JmsMessage](settings: JmsProducer
 
       override def preStart(): Unit = {
         // TODO: Remove hack to limit publisher to single session, and to await on a future.
-        val jmsSessions = Await.result(openSessions(getDispatcher), settings.connectionRetrySettings.maxWait)
+        val jmsSessions = Await.result(openSessions(getDispatcher), settings.connectionRetrySettings.maxWaitTime)
         jmsSession = jmsSessions.head
         jmsProducer = jmsSession.session.createProducer(jmsSession.destination)
         if (settings.timeToLive.nonEmpty) {
