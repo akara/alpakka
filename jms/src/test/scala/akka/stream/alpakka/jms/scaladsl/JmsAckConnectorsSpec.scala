@@ -157,11 +157,14 @@ class JmsAckConnectorsSpec extends JmsSpec {
             .withSessionCount(5)
             .withBufferSize(0)
             .withQueue("test")
+            .withConnectionRetrySettings(ConnectionRetrySettings(maxRetries = 3))
         )
         .runWith(Sink.seq)
       Thread.sleep(500)
       ctx.broker.stop()
-      result.failed.futureValue shouldBe an[JMSException]
+      val ex = result.failed.futureValue
+      ex shouldBe a[ConnectionRetryException]
+      ex.getCause shouldBe a[JMSException]
     }
 
     "publish and consume elements through a topic " in withServer() { ctx =>

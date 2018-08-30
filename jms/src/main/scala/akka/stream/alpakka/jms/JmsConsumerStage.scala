@@ -219,6 +219,13 @@ abstract class SourceStageLogic[T](shape: SourceShape[T],
     failStage(ex)
   }
 
+  private[jms] def onSessionOpened(jmsSession: JmsSession): Unit
+
+  private val onSession = getAsyncCallback[JmsSession] { session =>
+    jmsSessions :+= session
+    onSessionOpened(session)
+  }
+
   private[jms] def getDispatcher =
     attributes.get[ActorAttributes.Dispatcher](
       ActorAttributes.Dispatcher("akka.stream.default-blocking-io-dispatcher")
@@ -232,7 +239,23 @@ abstract class SourceStageLogic[T](shape: SourceShape[T],
     fail(out, e)
   }
 
-  override def preStart(): Unit = initSessionAsync(getDispatcher)
+  private[jms] def initConsumption(): Future[Seq[JmsSession]] = {
+    val sessionsFuture = createConnectionAndSessions(onConnectionFailure = _ => initConsumption())
+    sessionsFuture.foreach { sessions =>
+      sessions.foreach { session =>
+        onSession.invoke(session)
+      }
+    }
+    sessionsFuture.onFailure {
+      case e: Exception => fail.invoke(e)
+    }
+    sessionsFuture
+  }
+
+  override def preStart(): Unit = {
+    setExecutionContext(getDispatcher)
+    initConsumption()
+  }
 
   private[jms] val handleMessage = getAsyncCallback[T] { msg =>
     if (isAvailable(out)) {

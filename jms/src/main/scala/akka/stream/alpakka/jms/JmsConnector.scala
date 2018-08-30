@@ -30,39 +30,17 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
 
   private[jms] def jmsSettings: JmsSettings
 
-  private[jms] def onSessionOpened(jmsSession: JmsSession): Unit = {}
-
   private[jms] def fail = getAsyncCallback[Throwable](e => failStage(e))
 
   private def onConnection = getAsyncCallback[jms.Connection] { c =>
     jmsConnection = Some(c)
   }
 
-  private def onSession =
-    getAsyncCallback[JmsSession] { session =>
-      jmsSessions :+= session
-      onSessionOpened(session)
-    }
-
-  private def setExecutionContext(dispatcher: Dispatcher): Unit =
+  private[jms] def setExecutionContext(dispatcher: Dispatcher): Unit =
     ec = materializer match {
       case m: ActorMaterializer => m.system.dispatchers.lookup(dispatcher.dispatcher)
       case x => throw new IllegalArgumentException(s"Stage only works with the ActorMaterializer, was: $x")
     }
-
-  private[jms] def initSessionAsync(dispatcher: Dispatcher): Future[_] = {
-    setExecutionContext(dispatcher)
-    val sessionsFuture = createSessions()
-    sessionsFuture.foreach { sessions =>
-      sessions.foreach { session =>
-        onSession.invoke(session)
-      }
-    }
-    sessionsFuture.onFailure {
-      case e: Exception => fail.invoke(e)
-    }
-    sessionsFuture
-  }
 
   private[jms] def createSession(connection: jms.Connection,
                                  createDestination: jms.Session => jms.Destination): JmsSession
@@ -138,17 +116,14 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
         }
     }
 
-  private[jms] def openSessions(dispatcher: Dispatcher): Future[Seq[JmsSession]] = {
-    setExecutionContext(dispatcher)
-    createSessions()
-  }
-
-  private def createSessions(): Future[Seq[JmsSession]] = {
+  private[jms] def createConnectionAndSessions(
+      onConnectionFailure: jms.JMSException => Unit
+  ): Future[Seq[JmsSession]] = {
     implicit val system: ActorSystem = ActorMaterializerHelper.downcast(materializer).system
     startConnectionWithRetry().map { connection =>
       connection.setExceptionListener(new jms.ExceptionListener {
-        override def onException(exception: jms.JMSException) =
-          fail.invoke(exception)
+        override def onException(ex: jms.JMSException) =
+          onConnectionFailure(ex)
       })
       onConnection.invoke(connection)
 
