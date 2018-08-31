@@ -122,8 +122,16 @@ private[jms] trait JmsConnector { this: GraphStageLogic =>
     implicit val system: ActorSystem = ActorMaterializerHelper.downcast(materializer).system
     startConnectionWithRetry().map { connection =>
       connection.setExceptionListener(new jms.ExceptionListener {
-        override def onException(ex: jms.JMSException) =
+        override def onException(ex: jms.JMSException) = {
+          try {
+            connection.close() // best effort closing the connection.
+          } catch {
+            case t: Throwable =>
+          }
+          jmsSessions = Seq.empty
+
           onConnectionFailure(ex)
+        }
       })
       onConnection.invoke(connection)
 

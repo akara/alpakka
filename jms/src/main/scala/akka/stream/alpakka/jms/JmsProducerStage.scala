@@ -50,7 +50,7 @@ private[jms] final class JmsProducerStage[A <: JmsMessage](settings: JmsProducer
         // TODO: Remove hack to limit publisher to single session, and to await on a future.
         setExecutionContext(getDispatcher)
         val sessionsFuture = createConnectionAndSessions(onConnectionFailure = e => fail.invoke(e))
-        val jmsSessions = Await.result(sessionsFuture, settings.connectionRetrySettings.maxWaitTime)
+        jmsSessions = Await.result(sessionsFuture, settings.connectionRetrySettings.maxWaitTime)
         jmsSession = jmsSessions.head
         jmsProducer = jmsSession.session.createProducer(jmsSession.destination)
         if (settings.timeToLive.nonEmpty) {
